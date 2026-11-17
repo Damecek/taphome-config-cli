@@ -1,0 +1,9 @@
+{
+  "TriggerTypeId": 12,
+  "Name": "TEST typo",
+  "IsEnabled": false,
+  "TriggerParameters": {
+    "$type": "FormulaTriggerParameters",
+    "EvaluationFormulaa": "Va"
+  }
+}

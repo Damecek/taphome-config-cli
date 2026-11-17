@@ -46,15 +46,16 @@ WIRE = {"Variant": "varint", "Fixed64": "fixed64", "Fixed32": "fixed32", "String
 
 PRIMITIVES = {
     "int": {"type": "integer", "format": "int32"},
-    "short": {"type": "integer", "format": "int32"},
-    "sbyte": {"type": "integer", "format": "int32"},
-    "byte": {"type": "integer", "format": "int32"},
-    "ushort": {"type": "integer", "format": "int32"},
-    "char": {"type": "integer", "format": "int32"},
+    # x-proto-clr-type keeps the exact integer type that the format loses (a codec masks unsigned values to it).
+    "short": {"type": "integer", "format": "int32", "x-proto-clr-type": "short"},
+    "sbyte": {"type": "integer", "format": "int32", "x-proto-clr-type": "sbyte"},
+    "byte": {"type": "integer", "format": "int32", "x-proto-clr-type": "byte"},
+    "ushort": {"type": "integer", "format": "int32", "x-proto-clr-type": "ushort"},
+    "char": {"type": "integer", "format": "int32", "x-proto-clr-type": "char"},
     # shortcut: uint does not fit int32, so it is int64 here although the design note says int32.
-    "uint": {"type": "integer", "format": "int64"},
+    "uint": {"type": "integer", "format": "int64", "x-proto-clr-type": "uint"},
     "long": {"type": "integer", "format": "int64"},
-    "ulong": {"type": "integer", "format": "int64"},
+    "ulong": {"type": "integer", "format": "int64", "x-proto-clr-type": "ulong"},
     "bool": {"type": "boolean"},
     "string": {"type": "string"},
     "double": {"type": "number", "format": "double"},
@@ -197,8 +198,12 @@ class Builder:
         if short in LISTS and len(args) == 1:
             return {"type": "array", "items": self.schema_of_parsed(args[0])}
         if short in MAPS and len(args) == 2:
-            return {"type": "object", "additionalProperties": self.schema_of_parsed(args[1]),
-                    "x-proto-map": {"key": self.key_name(args[0])}}
+            out = {"type": "object", "additionalProperties": self.schema_of_parsed(args[1]),
+                   "x-proto-map": {"key": self.key_name(args[0])}}
+            clr = PRIMITIVES.get(args[0][0], {}).get("x-proto-clr-type")
+            if clr:
+                out["x-proto-map"]["clr-key"] = clr
+            return out
         if short == "KeyValuePair" and len(args) == 2:
             return {"type": "object", "x-proto-type": "key-value-pair",
                     "properties": {"Key": dict(self.schema_of_parsed(args[0]), **{"x-proto-tag": 1}),
@@ -230,6 +235,7 @@ class Builder:
         if name in KEY_NAMES:
             return KEY_NAMES[name]
         if self.resolve(name) and self.types[self.resolve(name)]["kind"] == "enum":
+            self.ref(self.resolve(name))  # the enum schema documents the key values
             return f"enum:{self.resolve(name)}"
         return name
 

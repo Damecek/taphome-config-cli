@@ -87,11 +87,22 @@ def show(o):
     print(json.dumps(redact(o), indent=2, ensure_ascii=False))
 
 
+def write_capture(name: str, data: bytes) -> Path:
+    """Write a capture readable by the owner only (captures hold the real configuration)."""
+    CAPTURES.mkdir(mode=0o700, parents=True, exist_ok=True)
+    CAPTURES.chmod(0o700)
+    p = CAPTURES / name
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    p.chmod(0o600)  # O_CREAT keeps the mode of an existing file
+    return p
+
+
 def save_raw(name: str, frames: list):
-    CAPTURES.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     for i, data in enumerate(frames):
-        (CAPTURES / ("%s-%s-%d.bin" % (name, stamp, i))).write_bytes(data)
+        write_capture("%s-%s-%d.bin" % (name, stamp, i), data)
 
 
 # ---------------------------------------------------------------- session store
@@ -216,9 +227,8 @@ async def cmd_login(cfg, args):
 async def cmd_sync(cfg, args):
     async with opened(cfg) as s:
         r = s.reconnect
-    CAPTURES.mkdir(parents=True, exist_ok=True)
-    out = CAPTURES / ("sync-%s.json" % time.strftime("%Y%m%d-%H%M%S"))
-    out.write_text(json.dumps(r, indent=1, ensure_ascii=False))
+    out = write_capture("sync-%s.json" % time.strftime("%Y%m%d-%H%M%S"),
+                        json.dumps(r, indent=1, ensure_ascii=False).encode("utf-8"))
     print("devices=%d ccus=%d smart_rules=%d dashboards=%d protocol=%s core=%s\nwritten: %s" % (
         len(r.get("Devices", [])), len(r.get("Ccus", [])), len(r.get("SmartRules", [])),
         len(r.get("Dashboards", [])), r.get("CurrentProtocolVersion"), r.get("CoreVersionString"),

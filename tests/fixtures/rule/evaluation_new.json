@@ -1,0 +1,11 @@
+{
+  "TriggerTypeId": 11,
+  "Version": 5,
+  "Name": "TEST fixture evaluation",
+  "IsEnabled": false,
+  "TriggerParameters": {
+    "$type": "EvaluationTriggerParameters",
+    "Variables": [{"DeviceId": 11, "ValueLogType": 62, "Abbreviation": "Va"}],
+    "EvaluationFormula": "Va > 1"
+  }
+}

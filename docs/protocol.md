@@ -234,6 +234,8 @@ OpenAPI describes HTTP, so the document uses these conventions.
 - Broadcasts are `webhooks`, one per message class. `x-broadcasts` on an operation lists the ones it triggers.
 - `x-proto-include-tag` is the field number of the message in `MessageBase`. `x-proto-include-path`, `x-proto-included-by`, `x-proto-base`, `x-proto-abstract` and `x-proto-includes` describe the hierarchy.
 - `x-proto-tag` is the field number of a property. `x-proto-wire`, `x-proto-packed`, `x-proto-format` (zigzag), `x-proto-default`, `x-proto-required` and `x-proto-map` describe its encoding. Guid, DateTime and TimeSpan carry `x-proto-encoding` with the bcl form.
+- `x-proto-clr-type` names the exact integer type (`short`, `sbyte`, `byte`, `ushort`, `char`, `uint`, `ulong`) where `format` int32 or int64 loses it. A codec masks unsigned values to that width. `x-proto-map.clr-key` does the same for a map key. An enum used as a map key (`x-proto-map.key: enum:<Name>`) has its own schema.
+- `x-taphome.wire.enums` holds enums that are plain integer properties in the schemas: `LoginResult`, `ReconnectResult` and `TriggerType` (the values of `TriggerModel.TriggerTypeId`).
 - `x-kind` is read, write, subscribe or action. `x-min-protocol-version` is the lowest Core protocol version that supports the operation.
 - `x-evidence` lists where in the app the operation was found, as `Assembly: Namespace.Class.Method`. `x-verified` is true only for operations tested against a real Core (see `docs/verification.md`).
 - The security scheme `coreSession` is virtual (`x-virtual: true`). It stands for the session Guid that goes into the reconnect message. No such HTTP header exists and nothing is sent in the handshake.

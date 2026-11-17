@@ -474,8 +474,10 @@ paths:
         protocol: 89
         note: 'exercised for one case only: Interface Variable, Model VirtualVariableGeneral, DeviceTypeId 0, no
           CcuId and no DeviceProperties; the Core allocated the id, attached the device to the virtual CCU, generated
-          a VIRT-<guid> serial and filled default properties; one MessageDeviceListUpdatedBroadcast; other virtual
-          models not tried (addVirtualDevice and addVirtualVariable share this request class)'
+          a VIRT-<guid> serial and filled default properties; one MessageDeviceListUpdatedBroadcast; answer MessageAddDeviceResponse
+          with AddedDevice; repeated through the Rust CLI (device add-virtual) with a dry run first and a passing
+          read-back by a fresh sync; other virtual models and DeviceProperties not tried (addVirtualDevice and addVirtualVariable
+          share this request class)'
       x-variants:
       - id: addDevice
         summary: Create a device (the app uses it only for virtual devices and variables).
@@ -1406,7 +1408,9 @@ paths:
         protocol: 89
         note: ForceDelete false, ErrorCode 1 and one MessageDeviceListUpdatedBroadcast for a virtual variable, a
           Packet Parser device and, after its child was deleted, a Packet Parser module; the freed device id is
-          reused later; ForceDelete true not tried
+          reused later; repeated through the Rust CLI (variable, Packet Parser child, then module); the CLI refused
+          to delete a variable that a rule referenced and a module that still had a child, without sending; ForceDelete
+          true not tried
   /Core/messages/MessageDeleteDevicesRequest:
     post:
       operationId: deleteDevices
@@ -1924,7 +1928,8 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: ErrorCode 1 and one MessageTriggerModelsDeletedBroadcast; the rule stays as a tombstone (IsDeleted
-          true, parameters removed, changeset raised); tried for one rule
+          true, parameters removed, changeset raised); tried for one rule, again through the Rust CLI with a passing
+          read-back
   /Core/messages/MessageDeleteUserPermissionsForDashboardRequest:
     post:
       operationId: deleteUserPermissionsForDashboard
@@ -2944,7 +2949,7 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: empty response for a healthy device (OriginId 0) and for a Packet Parser module (OriginId 1), with
-          ShouldSubscribe false; a response with errors was not seen
+          ShouldSubscribe false; a response with errors was not seen (also through the Rust CLI)
   /Core/messages/MessageGetDeviceLogRequest:
     post:
       operationId: getDeviceLog
@@ -2992,7 +2997,8 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: returns value-change entries with a TapHomeTime field; ShouldSubscribe false and true both answer
-          with the same log
+          with the same log; entries carry ChangeOrigin values such as Startup and ByDeviceOrDirectLink, decoded
+          to names by the Rust CLI; one MessageDeviceLogSubscribedBroadcast was seen after a rule enable
   /Core/messages/MessageGetGroupPermissionsForDashboardRequest:
     post:
       operationId: getGroupPermissionsForDashboard
@@ -3430,8 +3436,9 @@ paths:
         protocol: 89
         note: empty for an existing device before it ran a script; after a freshly created Packet Parser device
           script ran, LastRunId with ObjectIdType 0 and ScriptKey ReadStateScriptPacketParser returned Result (DataType,
-          SerializerValueTypeId 4 = double, bytes = IEEE-754 bits as int64) and RunTimestampUtc; snapshot list not
-          decoded
+          SerializerValueTypeId 4 = double, bytes = IEEE-754 bits as int64) and RunTimestampUtc; the per-phase variable
+          snapshot list is decoded (phase 0 held the variable with NaN before its first value, phase 1 was empty);
+          after a script change the next last-run showed the new Result within four seconds
   /Core/messages/MessageGetServiceAttributeValuesRequest:
     post:
       operationId: getServiceAttributeValues
@@ -3691,7 +3698,7 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: empty response for a trigger without errors (ShouldSubscribe false), also for a freshly created formula
-          rule; a response with errors was not seen
+          rule; a response with errors was not seen; the CLI read all rules, all returned empty
   /Core/messages/MessageGetUsedTcpPortsRequest:
     post:
       operationId: getUsedTcpPorts
@@ -4420,10 +4427,13 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: 'exercised for one case only: HTTP module (PacketParserModuleHttp) with one PacketParserVariable device,
-          hand-built ConfigJson with ProtocolVersion 66 and negative placeholder ids, no template XML; AddedDevices
-          listed both, the Core set the child''s HardwareParentId and filled the other properties; not tried for
-          TCP, UDP, FTP, MQTT, Modbus (ModbusConfigRequest is a different class) or the devices-only form (addPacketParserDevice,
-          importPacketParserTemplate and addTemplateDevicesToExistingPacketParserModule share this request class)'
+          ConfigJson with ProtocolVersion 66 and negative placeholder ids (-1 module, -2 child), hand-built and
+          also converted by the CLI from a template XML (pp import); the template metadata keys Name, Id and Revision
+          in ConfigJson were accepted; the answer is MessageHttpApiConfigResponse; AddedDevices listed both, the
+          Core set the child''s HardwareParentId and filled the other properties; the module did not keep StayConnected
+          on read-back; not tried for TCP, UDP, FTP, MQTT, templates with several devices or DeviceVariables placeholders,
+          Modbus (ModbusConfigRequest is a different class) or the devices-only form (addPacketParserDevice, importPacketParserTemplate
+          and addTemplateDevicesToExistingPacketParserModule share this request class)'
       x-variants:
       - id: addPacketParserModule
         summary: Create a Packet Parser module (one target host and protocol) by sending a one-module TemplateConfiguration
@@ -4647,7 +4657,8 @@ paths:
         date: '2026-11-17'
         core: 2025.2.32396
         protocol: 89
-        note: LoginResultId 1 on a throwaway /Core socket; SessionId returned
+        note: LoginResultId 1 on a throwaway /Core socket; SessionId returned; also used for every command of the
+          Rust CLI (auth login, auth status)
   /Core/messages/MessageLongRunningTaskCancelRequest:
     post:
       operationId: cancelLongRunningTask
@@ -5035,7 +5046,8 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: fresh client first gets ReconnectResultId 4 with a DbHash, then 1 when it reconnects with that DbHash;
-          full sync decodes with no unknown fields
+          full sync decodes with no unknown fields; the Rust CLI sync (summary, every section, full, written to
+          a file) decoded with no errors and no unknown fields
       x-variants:
       - id: reconnect
         summary: Present the SessionId on a new /Core socket and receive the initial sync (devices, interfaces,
@@ -7316,8 +7328,9 @@ paths:
         protocol: 89
         note: ErrorCode 1 with one MessageDeviceUpdatedBroadcast for a rename (key Name, visible in the next sync)
           and for a script change (ReadStateScriptPacketParser on a Packet Parser variable, the new script ran at
-          once, no restart); other keys, zone, category and type not tried (setDeviceType, assignDevicesToZone and
-          assignDevicesToCategory share this request class)
+          once, no restart); repeated through the Rust CLI (device rename, device set-props with Name, pp script
+          set) with a passing read-back; other keys, zone, category and type not tried (setDeviceType, assignDevicesToZone
+          and assignDevicesToCategory share this request class)
       x-variants:
       - id: updateMultipleDevicesProperties
         summary: Apply a property delta to one or many devices (the main device configuration write).
@@ -7653,8 +7666,12 @@ paths:
         protocol: 89
         note: 'exercised for one case only: create (Id 0) of a disabled formula rule (type 12, version 13) with
           one input and one output variable; ErrorCode 1, one MessageTriggerModelsUpdatedBroadcast; the Core filled
-          TriggerInputs and Priorities and reused the id of a soft-deleted rule; updating or enabling an existing
-          rule and other rule types not tried'
+          TriggerInputs and Priorities and reused the id of a soft-deleted rule; later runs through the Rust CLI
+          also exercised enable and disable of that rule (the whole stored model re-sent with IsEnabled changed;
+          ErrorCode 1, ChangesetId grew, rest unchanged, no rule errors) and an update of its EvaluationFormula
+          (same Id; stored model equals the sent one); each write was also followed by MessageAffectingTriggersInfoSubscribedBroadcast;
+          a round trip of all 87 live rules (12 trigger types) through decode and encode reproduced the Core bytes;
+          creating an enabled rule, creating or updating a rule of another type not tried'
   /Core/messages/MessageUpdateUserPermissionsForDashboardRequest:
     post:
       operationId: updateUserPermissionsForDashboard
@@ -12528,6 +12545,39 @@ components:
       - type: object
       x-proto-include-tag: 103
       x-proto-included-by: ValueLogTypeConversionBase
+    DeviceActionParameterType:
+      type: integer
+      enum:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
+      x-enum-varnames:
+      - None
+      - Enabled
+      - Value
+      - MinValue
+      - MaxValue
+      - RotationEnabled
+      - TimeMs
+      - ClickKind
+      - PreciseAngle
+      - IgnoreBorders
+      - ResolvedValue
+      - OnlyOnValues
+      - SendToHw
+      - FadeTimeMs
+      x-proto-wire: varint
     DeviceActionParameters:
       allOf:
       - $ref: '#/components/schemas/ActionParametersBaseFields'
@@ -15172,6 +15222,7 @@ components:
           FrequencyErrorTime:
             type: integer
             format: int64
+            x-proto-clr-type: uint
             x-proto-tag: 6
             x-proto-wire: varint
       x-proto-include-tag: 351
@@ -16807,6 +16858,7 @@ components:
           ResponseFlagsId:
             type: integer
             format: int32
+            x-proto-clr-type: short
             x-proto-tag: 1
             x-proto-wire: varint
           ErrorMessage:
@@ -17612,6 +17664,7 @@ components:
           ProtocolVersion:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 3
             x-proto-wire: varint
           ArchitectureTypeId:
@@ -20418,16 +20471,19 @@ components:
           CalibrationState:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 2
             x-proto-wire: varint
           StartTimeUp5ms:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 3
             x-proto-wire: varint
           StartTimeDown5ms:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 4
             x-proto-wire: varint
           PositionStepUpS:
@@ -20453,51 +20509,61 @@ components:
           CountStepsUp:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 9
             x-proto-wire: varint
           CountStepsDown:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 10
             x-proto-wire: varint
           MaxCurrentUp:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 11
             x-proto-wire: varint
           MaxCurrentDown:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 12
             x-proto-wire: varint
           StopCurrentUp:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 13
             x-proto-wire: varint
           StopCurrentDown:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 14
             x-proto-wire: varint
           StartCurrentUp:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 15
             x-proto-wire: varint
           StartCurrentDown:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 16
             x-proto-wire: varint
           AverageCurrentUp:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 17
             x-proto-wire: varint
           AverageCurrentDown:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 18
             x-proto-wire: varint
       x-proto-include-tag: 396
@@ -21967,6 +22033,7 @@ components:
           SlaveId:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 4
             x-proto-wire: varint
       x-proto-include-tag: 100
@@ -21985,11 +22052,13 @@ components:
         RegisterIndex:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 3
           x-proto-wire: varint
         RegistersCount:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 4
           x-proto-wire: varint
         Values:
@@ -21997,6 +22066,7 @@ components:
           items:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
           x-proto-tag: 5
           x-proto-wire: varint
         ExceptionMessage:
@@ -22016,6 +22086,7 @@ components:
         Index:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 2
           x-proto-wire: varint
         LastSuccessfulReadTransaction:
@@ -22029,6 +22100,7 @@ components:
         LastReadValue:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 5
           x-proto-wire: varint
         LastSuccessfulWriteTransaction:
@@ -22042,6 +22114,7 @@ components:
         ValueToWrite:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 8
           x-proto-wire: varint
         LastUnsuccessfulWriteValue:
@@ -22049,6 +22122,7 @@ components:
           - integer
           - 'null'
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 9
           x-proto-wire: varint
     ModbusRegisterType:
@@ -22089,16 +22163,19 @@ components:
           RegisterIndex:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 4
             x-proto-wire: varint
           FromSlaveId:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 5
             x-proto-wire: varint
           ToSlaveId:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 6
             x-proto-wire: varint
       x-proto-include-tag: 101
@@ -22114,6 +22191,7 @@ components:
               $ref: '#/components/schemas/ModbusManualTransaction'
             x-proto-map:
               key: int32
+              clr-key: byte
             x-proto-tag: 1
             x-proto-wire: length-delimited
       x-proto-include-tag: 102
@@ -22640,11 +22718,13 @@ components:
             items:
               type: integer
               format: int32
+              x-proto-clr-type: ushort
             x-proto-tag: 2
             x-proto-wire: varint
           PirThreshold:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 3
             x-proto-wire: varint
       x-proto-include-tag: 112
@@ -22937,6 +23017,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: char
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 115
@@ -23009,6 +23090,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: short
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 112
@@ -23021,6 +23103,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: sbyte
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 114
@@ -23056,6 +23139,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 108
@@ -23068,6 +23152,7 @@ components:
           GenericValue:
             type: integer
             format: int64
+            x-proto-clr-type: uint
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 109
@@ -23080,6 +23165,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 113
@@ -23092,6 +23178,7 @@ components:
           GenericValue:
             type: integer
             format: int64
+            x-proto-clr-type: ulong
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 110
@@ -25595,11 +25682,13 @@ components:
         Crc32:
           type: integer
           format: int64
+          x-proto-clr-type: uint
           x-proto-tag: 2
           x-proto-wire: varint
         ImageIndex:
           type: integer
           format: int32
+          x-proto-clr-type: short
           x-proto-tag: 3
           x-proto-wire: varint
     ZC3ImageUploadTaskRequestParameters:
@@ -25755,8 +25844,57 @@ x-taphome:
         '6': AppTooOld
         '7': NotReady
         '8': WrongLocationId
+      TriggerType:
+        '0': None
+        '1': AlarmStateTrigger
+        '2': AlarmTrigger
+        '3': BlindsAccordingToSunTrigger
+        '4': BoilerPIDTrigger
+        '5': CountdownTimerTrigger
+        '6': DelayedAirVentTrigger
+        '7': DeviceStatusNotificationTrigger
+        '8': DisableBoilerTrigger
+        '9': EmergencyAlarmTrigger
+        '10': EquithermicRegulationTrigger
+        '11': EvaluationTrigger
+        '12': FormulaTrigger
+        '13': HysteresisControlTrigger
+        '14': KeepDefaultValuesTrigger
+        '15': LightingTimerTrigger
+        '16': LightSceneSequenceTrigger
+        '17': LimitFloorTemperatureTrigger
+        '18': LinkTrigger
+        '19': MultiValueSwitchTrigger
+        '20': OnePushButtonBlindControlTrigger
+        '21': OpenBlindsOnSensorTrigger
+        '22': PresenceSimulationTrigger
+        '23': ProtectBlindsFromWindTrigger
+        '24': ProtectFromOverheatTrigger
+        '25': PushButtonBlindControlTrigger
+        '26': PushButtonDimmingTrigger
+        '27': PushButtonTrigger
+        '28': ReduceHeatingTrigger
+        '29': SensorNotificationTrigger
+        '30': SimpleAlarmTrigger
+        '31': SunEventTrigger
+        '32': SwitchTrigger
+        '33': TemperaturePID2Trigger
+        '34': TimeoutTrigger
+        '35': TimerTrigger
+        '36': WatchdogTrigger
+        '37': WeekScheduleTrigger
+        '38': MultiValueSwitchLightSceneSequenceTrigger
+        '39': LightingTimerTrigger2
+        '40': DailyScheduleTrigger
+        '41': SequencerTrigger
+        '42': ProtectBlindsFromMildWindTrigger
+        '43': AccessTrigger
+        '44': DoorBellTrigger
+        '45': ScriptTrigger
+        '10000': ProtectBlindsFromStrongWindSafetyTrigger
+        '10001': LimitTemperatureSafetyTrigger
       note: These enums are not in the schema catalog. The matching properties (LoginResultId, ReconnectResultId,
-        ResponseFlagsId, ErrorCode) are plain integers.
+        ResponseFlagsId, ErrorCode, TriggerModel.TriggerTypeId) are plain integers. TriggerType is TapHome.Core.Lib.Model.IFTTT.TriggerType.
     scalars:
       integers: varint. Negative int32 is sign-extended to 10 bytes. A zero value is not written.
       bool: varint 0 or 1, false is not written

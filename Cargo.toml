@@ -1,0 +1,31 @@
+[package]
+name = "taphome-config-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command line tool that lets AI agents configure a TapHome Core over its WebSocket protobuf protocol"
+publish = false
+
+[lib]
+name = "taphome_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "taphome"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+roxmltree = "0.21.2"
+serde = { version = "1", features = ["derive"] }
+# preserve_order: decoded maps keep wire order, so a re-encode reproduces the original bytes.
+# float_roundtrip: parse doubles exactly, so a decoded double re-encodes to the same 8 bytes.
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+sha2 = "0.11"
+tokio = { version = "1", features = ["rt", "net", "time", "macros", "sync"] }
+tokio-tungstenite = "0.30"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
