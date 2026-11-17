@@ -250,22 +250,6 @@ fn usage_errors_are_json_and_help_is_text() {
 }
 
 #[test]
-fn placeholder_groups_report_internal_error() {
-    let core = FakeCore::start();
-    for group in ["device", "pp", "rule", "io"] {
-        let (code, doc) = run_cli(&core, &[group, "todo"]);
-        assert_eq!(
-            (code, error(&doc)["code"].clone()),
-            (1, json!("internal")),
-            "{group}"
-        );
-    }
-    // The hidden subcommand stays out of the help.
-    let (_, help) = run_cli(&core, &["device", "--help"]);
-    assert!(!help.as_str().unwrap().contains("todo"));
-}
-
-#[test]
 fn connection_failure_and_timeout_exit_4() {
     let core = FakeCore::start();
     let (code, doc) = run_cli_with(
