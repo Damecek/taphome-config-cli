@@ -1,0 +1,1415 @@
+# Hand-written parts of the specification. The generator (scripts/build_openapi.py) copies these verbatim:
+#   info, servers, tags, securitySchemes, x-taphome       skeleton of openapi/taphome-core.yaml
+#   paths                                                 real HTTP endpoints and WebSocket endpoints (x-verified is overwritten from verification.yaml)
+#   schemas                                               JSON DTOs of the cloud API (names start with Cloud)
+# Everything protobuf-based is generated from the operations directory and work/catalog/official.json.
+# The cloud API tables come from the analysts notes on the app (static reading, not verified).
+info:
+  title: TapHome Core configuration protocol
+  version: 89+2025.2.32375
+  description: |-
+    Machine-readable description of how the TapHome app configures a TapHome Core (smart-home controller), reverse engineered from the Android app 2025.2.32375.
+
+    There is no REST API for configuration. The app opens a WebSocket to the Core (ws://<core-ip>/Core, port 80, no TLS on the LAN) and exchanges protobuf-net messages. One binary WebSocket frame is one serialized MessageBase. A request gets a typed response, or a MessageGenericResponse on error, matched by the RequestsId field. State changes are pushed by the Core as ...Broadcast messages.
+
+    How this document maps that onto OpenAPI:
+    - Every request message is a virtual path, POST /Core/messages/<RequestClassName> (or /SetUp/messages/..., /ForgottenPassword/messages/..., /Identify/messages/...). Nothing is posted over HTTP. The path name only identifies the message. The request body and the 200 response are protobuf (application/x-protobuf) described by the schemas, and the operation says which WebSocket endpoint carries it (x-ws-endpoint).
+    - Broadcasts pushed by the Core are listed under webhooks, one per message class.
+    - x-proto-include-tag is the field number under which the message is nested inside MessageBase. Every schema property has x-proto-tag, the protobuf field number, plus the wire encoding details a client needs.
+    - Real HTTP endpoints (the Core status page, the TapHomeApi routes of the Core, the TapHome cloud API) are ordinary paths with their own servers.
+    - Authentication is a Guid session, not an HTTP header. It is obtained with login and presented as the first message on each /Core socket (reconnect). The coreSession security scheme is a placeholder for that.
+
+    Every operation carries x-verified. It is false unless the operation was tested against a real Core (see openapi/verification.yaml). The rest is static reading of the app, so expect corrections.
+
+    Version: Core protocol version 89 (Official app line), app build 2025.2.32375. Operations carry x-min-protocol-version.
+servers:
+- url: ws://{coreHost}
+  description: Core on the LAN, port 80, no TLS
+  variables:
+    coreHost:
+      default: taphome-core.local
+      description: Host name or IP address of the Core. The app learns it from UDP, multicast or mDNS discovery,
+        from the cloud location list, or from the user.
+- url: https://cloudapi.taphome.com
+  description: TapHome cloud API (default base, the app can override it with the environment variable X_TAPHOME_CLOUDAPI_URL)
+tags:
+- name: session
+  description: Login, session reconnect with the initial sync, acknowledgements, pre-auth endpoints (Identify, SetUp,
+    ForgottenPassword).
+- name: devices
+  description: 'Devices as the Core stores them: properties, names, types, deletion, manual override.'
+- name: modules
+  description: 'Hardware modules (TapHome Bus and others): add, replace, firmware, diagnostics, calibration.'
+- name: interfaces
+  description: 'Communication interfaces (CCU) such as TapHome Bus, Modbus, Packet Parser: add, delete, properties,
+    scans.'
+- name: io-check
+  description: 'Reading and checking inputs and outputs: device values, logs, errors, service actions, value history.'
+- name: zones
+  description: Zones and categories (dashboards of set 1 and 2) and device assignment to them.
+- name: virtual-devices
+  description: Virtual devices and virtual variables.
+- name: packet-parser
+  description: Packet Parser interfaces, modules and devices (generic text/HTTP/TCP protocol driver).
+- name: modbus
+  description: Modbus interfaces, modules, devices, register discovery and manual transactions.
+- name: templates
+  description: Import of Packet Parser and Modbus templates (the template XML is parsed by the client).
+- name: scripts
+  description: Device and smart rule scripts, variables, and last-run debug values.
+- name: automations
+  description: Smart rules (automations, also called triggers) and their permissions.
+- name: schedules
+  description: Week plans, date ranges and Core clock.
+- name: users
+  description: 'Core users: list, create, rename, remove, password reset.'
+- name: permissions
+  description: Per-user, per-group and default permission matrices for devices, smart rules, dashboards and general
+    rights.
+- name: backup
+  description: Backup, restore and clone of the Core configuration.
+- name: core
+  description: 'Core lifecycle and basic properties: restart, factory reset, time, name and generic properties,
+    first setup.'
+- name: updates
+  description: Chunked upload of Core software packages.
+- name: dashboards
+  description: Dashboards and dashboard sets.
+- name: access
+  description: 'Door access control: access cards, week plans for cards, access logs, add and identify modes.'
+- name: export
+  description: Scheduled data export profiles.
+- name: media
+  description: Media library and SIP doorbell configuration.
+- name: remote-access
+  description: Per-user remote (cloud tunnel) access and relay-side messages.
+- name: taphome-api
+  description: TapHomeApi slave interface (exposing devices to outside callers), its token, and the message-level
+    API calls the cloud tunnels to the Core.
+- name: ws-endpoints
+  description: The WebSocket endpoints of the Core. Messages flow inside them as protobuf frames.
+- name: core-http
+  description: Plain HTTP endpoints served by the Core itself.
+- name: tapHomeApi-http
+  description: The public TapHomeApi HTTP routes (Core on the LAN, or the cloud host api.taphome.com).
+- name: cloud-api
+  description: TapHome cloud API (accounts, location list, tunnel endpoints, history signatures, updates). The Core
+    configuration never goes through it.
+securitySchemes:
+  coreSession:
+    type: apiKey
+    in: header
+    name: X-TapHome-Session-Virtual
+    description: The Core session Guid. It is issued in MessageLoginResponse.SessionId after a login message and
+      presented as SessionId inside MessageReconnectRequest, which must be the first message on every /Core socket.
+      OpenAPI cannot express a credential inside a message body, so this scheme is a placeholder. No such HTTP header
+      exists and nothing is sent in the WebSocket handshake.
+    x-virtual: true
+  cloudBearer:
+    type: http
+    scheme: bearer
+    description: 'Cloud user token returned in the token field of login2 or register2. Sent as Authorization: Bearer
+      <token>. The client has no refresh flow, a 401 logs the user out.'
+  tapHomeApiToken:
+    type: apiKey
+    in: query
+    name: token
+    description: Token of the TapHomeApi slave interface (a Guid). Shown in the app on the TapHomeApi page and regenerated
+      with MessageRefreshTapHomeApiTokenRequest.
+x-taphome:
+  protocolVersion: 89
+  appBuild: 2025.2.32375
+  wire:
+    endpoints:
+      core: ws://<host>/Core
+      identify: ws://<host>/Identify
+      setUp: ws://<host>/SetUp
+      forgottenPassword: ws://<host>/ForgottenPassword
+      port: 80
+      tls: none on the LAN
+      subProtocol: none
+      compression: none (permessage-deflate is not proposed)
+      cloudTunnel: the cloud returns full tunnel URLs (GET tunnelendpoints3), same protocol
+    framing: One WebSocket binary frame is exactly one protobuf-net serialization of MessageBase. No length prefix,
+      no envelope. Text frames are rejected. /Identify sends a bare LocationInfo instead.
+    subtypeEncoding: MessageBase has one nested length-delimited field per message class, field number = the include
+      tag (x-proto-include-tag). The field holds the message own fields. A client must write that field before field
+      1 (RequestsId), because the Core reader needs the subtype to create the instance. Deeper hierarchies nest
+      one more level per inheritance step.
+    requestsId: MessageBase field 1, int32 varint, written only when non-zero. The client keeps one counter per
+      socket and numbers requests 1, 2, 3 and so on (the reconnect request is 1). A response, or a progress message,
+      carries the RequestsId of its request. The login request uses 0.
+    messageTypes:
+      '0': None
+      '1': Request
+      '2': Response
+      '3': Broadcast
+      '4': Stream
+      '5': Acknowledgement
+      '6': Container
+      '7': Progress
+    acknowledgement:
+      minProtocolVersion: 23
+      intervalSeconds: 4
+      timeoutSeconds: 10.5
+      stamp: (MessageType << 32) | RequestsId as int64
+      message: MessageReceiveAcknowledgement (include tag 100), field 1 repeated int64, not packed
+      exempt:
+      - acknowledgements
+      - Stream messages
+      - MessageLoginRequest
+      - MessageCheckTunnelStatusRequest
+      - inner messages of a MessageContainer
+      onTimeout: the socket is closed with code 1008
+    keepalive:
+      webSocketPingIntervalSeconds: 6
+      pongTimeoutSeconds: 10
+      closeCodeOnNoPong: 1002
+    container: MessageContainer (include tag 383, protocol >= 47), field 1 repeated bytes. Core to client batching,
+      each element is a full MessageBase. Inner messages are not acknowledged one by one.
+    errorModel:
+      response: MessageGenericResponse (include tag 102). Any request can be answered with it, and write operations
+        normally are.
+      success: ErrorCode == 1 (CommonErrorCodes.Ok). Some app flows treat any reply as success, a client should
+        always check ErrorCode and ResponseFlags.
+      ResponseFlags:
+        '0': None
+        '1': Handled
+        '2': Failed
+      CommonErrorCodes:
+        '1': Ok
+        '2': Unauthorized
+        '3': Exception
+        '4': ParameterTooShortOrLong
+        '5': AlreadyExist
+        '6': DoesNotExist
+        '7': InvalidRequest
+        '8': MissingEmail
+        '9': WrongEmailFormat
+        '10': MissingPassword
+        '11': PasswordTooShort
+        '12': WrongEmailOrPassword
+        '13': MissingParameter
+        '14': AlreadyInProgress
+        '15': DeserializationException
+        '16': IncompatibleCoreSmartRuleVersion
+        '17': UpdateStarted
+        '18': UpdateFinished
+        '19': UpdateFailed
+        '20': AtLeastOneAdmin
+        '21': CoreOffline
+        '22': RequestNotSupported
+        '23': PasswordDoesNotMeetRequirements
+        '24': UserIsPlaceholder
+        '25': Cancelled
+        '26': RequiresCoreUpdate
+        '27': NotEnoughSpace
+        '28': MissingData
+      notes:
+      - Device actions are successful when ResponseFlags has Handled set.
+      - ErrorCode 2 (Unauthorized) is the permission error.
+      - ErrorCode 22 (RequestNotSupported) and 15 (DeserializationException) are the likely answers to a message
+        the Core does not know.
+    enums:
+      LoginResult:
+        '0': None
+        '1': Ok
+        '2': WrongPassword
+        '3': WrongLogin
+        '4': WrongAuthToken
+        '5': Deleted
+        '6': AppTooOld
+      ReconnectResult:
+        '0': None
+        '1': Ok
+        '2': WrongSession
+        '3': TooManyConnections
+        '4': FaultyStorageClient
+        '5': RemoteAccessDisabled
+        '6': AppTooOld
+        '7': NotReady
+        '8': WrongLocationId
+      note: These enums are not in the schema catalog. The matching properties (LoginResultId, ReconnectResultId,
+        ResponseFlagsId, ErrorCode) are plain integers.
+    scalars:
+      integers: varint. Negative int32 is sign-extended to 10 bytes. A zero value is not written.
+      bool: varint 0 or 1, false is not written
+      string: length-delimited UTF-8, null is not written, an empty string is written
+      bytes: length-delimited
+      double: fixed64, 0.0 is not written
+      float: fixed32
+      repeated: one field per element, not packed, unless a property has x-proto-packed
+      map: 'repeated entry messages {1: key, 2: value}, key and value are always written'
+      nullable: written only when it has a value
+    bcl:
+      Guid: 'nested message: field 1 fixed64 = bytes 0..7 of the .NET Guid.ToByteArray() (mixed-endian, Python uuid.bytes_le),
+        field 2 fixed64 = bytes 8..15. An empty Guid is a zero-length message.'
+      TimeSpan: 'nested message: field 1 zigzag varint value, field 2 varint scale (Days 0, Hours 1, Minutes 2,
+        Seconds 3, Milliseconds 4, Ticks 5, MinMax 15). The scale is the largest unit that divides the value exactly.
+        1 tick is 100 ns.'
+      DateTime: the TimeSpan encoding of (value minus 1970-01-01T00:00:00), no time zone conversion, treat as UTC.
+  passwordHash:
+    algorithm: lower-case hex of SHA-512 applied iterations times. The first round hashes the UTF-8 bytes of password
+      concatenated with a fixed salt, each next round hashes the previous binary digest.
+    iterations: 2
+    output: 128 lowercase hex characters
+    salt: fixed constant compiled into the app, see docs/auth.md
+    usedIn:
+    - MessageLoginRequest.PasswordHashOrAuthorizationToken
+    - MessageSetNewPasswordRequest.NewPasswordHash
+    - create/change password messages for local users
+    cloudAccountSecret: for a cloud account the hashed text is the per-location authorization token (Guid, lower-case
+      with hyphens) instead of a password
+paths:
+  /Core:
+    get:
+      operationId: wsCore
+      tags:
+      - ws-endpoints
+      summary: Main WebSocket (login, reconnect, every request and broadcast)
+      description: Binary frames, each one a protobuf-net MessageBase. Login happens on a short-lived /Core socket
+        (MessageLoginRequest, then MessageLoginResponse, then close). The working socket starts with MessageReconnectRequest
+        carrying the SessionId, and then carries all requests, responses, broadcasts and acknowledgements. Pings
+        every 6 s, acknowledgements every 4 s. The Official app opens a LAN socket and a cloud tunnel socket in
+        parallel and keeps the one that completes the reconnect first.
+      security: []
+      responses:
+        '101':
+          description: Switching Protocols. The WebSocket is open, protobuf frames follow.
+      x-transport: websocket-endpoint
+      x-evidence:
+      - 'TapHome.Android: Com.TapHome.Communication.CommunicationSocketState.GetCoreWebsocketUrl'
+      - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.Connect'
+      x-confidence: observed-in-code
+      x-verified: false
+  /Identify:
+    get:
+      operationId: wsIdentify
+      tags:
+      - ws-endpoints
+      summary: Core identity (before login)
+      description: The Core sends one binary frame, a bare LocationInfo protobuf (not wrapped in MessageBase). The
+        client sends nothing. See operation identifyCore.
+      security: []
+      responses:
+        '101':
+          description: Switching Protocols. The WebSocket is open, protobuf frames follow.
+      x-transport: websocket-endpoint
+      x-evidence:
+      - 'TapHome.Android: Com.TapHome.Communication.IdentifyClient.IdentifyCore'
+      x-confidence: observed-in-code
+      x-verified: false
+  /SetUp:
+    get:
+      operationId: wsSetUp
+      tags:
+      - ws-endpoints
+      summary: First-time setup of an unconfigured Core
+      description: One MessageSetupNewLocationRequest, answered by MessageGenericResponse. See operation setupNewLocation.
+      security: []
+      responses:
+        '101':
+          description: Switching Protocols. The WebSocket is open, protobuf frames follow.
+      x-transport: websocket-endpoint
+      x-evidence:
+      - 'TapHome.Android: Com.TapHome.Communication.SetUpNewLocation'
+      x-confidence: observed-in-code
+      x-verified: false
+  /ForgottenPassword:
+    get:
+      operationId: wsForgottenPassword
+      tags:
+      - ws-endpoints
+      summary: Administrator password reset
+      description: MessageForgottenPasswordRequest answered by MessageForgottenPasswordResponse, then MessageSetNewPasswordRequest
+        answered by MessageGenericResponse. Both are authorised by the setup access token printed on the Core.
+      security: []
+      responses:
+        '101':
+          description: Switching Protocols. The WebSocket is open, protobuf frames follow.
+      x-transport: websocket-endpoint
+      x-evidence:
+      - 'TapHome.Android: Com.TapHome.Communication.ForgottenPassword'
+      - 'TapHome.Android: Com.TapHome.Communication.NewPasswordForAdmin'
+      x-confidence: observed-in-code
+      x-verified: false
+  /:
+    get:
+      operationId: getCoreStatusPage
+      tags:
+      - core-http
+      summary: HTML status page of the Core
+      description: Plain HTTP GET on the Core. Returns an HTML page with the location name, uptime and local time.
+        Needs no authentication.
+      security: []
+      servers:
+      - url: http://{coreHost}
+        description: Core on the LAN, port 80
+        variables:
+          coreHost:
+            default: taphome-core.local
+      responses:
+        '200':
+          description: HTML status page
+          content:
+            text/html:
+              schema:
+                type: string
+      x-evidence:
+      - Observed against a real Core (see verification.yaml)
+      x-confidence: observed
+      x-verified: false
+  /api/TapHomeApi/v1/getDeviceValue/{externalId}:
+    get:
+      operationId: tapHomeApiGetDeviceValueHttp
+      tags:
+      - tapHomeApi-http
+      summary: Read the values of one exposed device
+      description: Returns JSON. The shape is not visible in the app.
+      security:
+      - tapHomeApiToken: []
+      servers:
+      - url: http://{coreHost}
+        description: Core on the LAN, port 80
+        variables:
+          coreHost:
+            default: taphome-core.local
+      - url: https://api.taphome.com
+        description: TapHome cloud host, only when cloud access is enabled on the interface
+      parameters:
+      - name: externalId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Owner-chosen external id of an exposed device (SlaveInterfaceDevice).
+      - name: valueTypeId
+        in: query
+        required: true
+        schema:
+          type: integer
+        description: Value type id (ValueLogType).
+      responses:
+        '200':
+          description: JSON value object
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+      x-evidence:
+      - 'TapHome.Android: TapHomeApiExposeDeviceSettingsPage (URLs printed for the user)'
+      x-confidence: observed-in-code
+      x-verified: false
+  /api/TapHomeApi/v1/getOneDeviceValue/{externalId}:
+    get:
+      operationId: tapHomeApiGetOneDeviceValueHttp
+      tags:
+      - tapHomeApi-http
+      summary: Read one value of an exposed device as plain text
+      description: Returns the bare value.
+      security:
+      - tapHomeApiToken: []
+      servers:
+      - url: http://{coreHost}
+        description: Core on the LAN, port 80
+        variables:
+          coreHost:
+            default: taphome-core.local
+      - url: https://api.taphome.com
+        description: TapHome cloud host, only when cloud access is enabled on the interface
+      parameters:
+      - name: externalId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Owner-chosen external id of an exposed device (SlaveInterfaceDevice).
+      - name: valueTypeId
+        in: query
+        required: true
+        schema:
+          type: integer
+        description: Value type id (ValueLogType).
+      responses:
+        '200':
+          description: The value as text
+          content:
+            application/json:
+              schema:
+                type: string
+      x-evidence:
+      - 'TapHome.Android: TapHomeApiExposeDeviceSettingsPage (URLs printed for the user)'
+      x-confidence: observed-in-code
+      x-verified: false
+  /api/TapHomeApi/v1/setDeviceValue/{externalId}:
+    get:
+      operationId: tapHomeApiSetDeviceValueHttp
+      tags:
+      - tapHomeApi-http
+      summary: Set a value of an exposed device
+      description: 'A second pair valueTypeId2 and value2 may be sent (blinds position and tilt). Numbers use the
+        invariant format #0.###. It changes device state, so it is control, not configuration.'
+      security:
+      - tapHomeApiToken: []
+      servers:
+      - url: http://{coreHost}
+        description: Core on the LAN, port 80
+        variables:
+          coreHost:
+            default: taphome-core.local
+      - url: https://api.taphome.com
+        description: TapHome cloud host, only when cloud access is enabled on the interface
+      parameters:
+      - name: externalId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: Owner-chosen external id of an exposed device (SlaveInterfaceDevice).
+      - name: valueTypeId
+        in: query
+        required: true
+        schema:
+          type: integer
+        description: Value type id (ValueLogType).
+      - name: value
+        in: query
+        required: true
+        schema:
+          type: number
+        description: Value to set.
+      - name: valueTypeId2
+        in: query
+        required: false
+        schema:
+          type: integer
+        description: Second value type id.
+      - name: value2
+        in: query
+        required: false
+        schema:
+          type: number
+        description: Second value.
+      responses:
+        '200':
+          description: Result of the set
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+      x-evidence:
+      - 'TapHome.Android: TapHomeApiExposeDeviceSettingsPage (URLs printed for the user)'
+      x-confidence: observed-in-code
+      x-verified: false
+  /api/user/register2:
+    post:
+      operationId: cloudRegister
+      tags:
+      - cloud-api
+      summary: Create a cloud account
+      description: No authentication.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudRegisterUserModel'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudGlobalUserRegisterLoginResponse'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/login2:
+    post:
+      operationId: cloudLogin
+      tags:
+      - cloud-api
+      summary: Cloud login, returns the Bearer token
+      description: No authentication header is sent to this call.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudLoginUserModel'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudGlobalUserRegisterLoginResponse'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/changepassword2:
+    post:
+      operationId: cloudChangePassword
+      tags:
+      - cloud-api
+      summary: Change the cloud password
+      description: ''
+      security:
+      - cloudBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudChangeUserPasswordModel'
+      responses:
+        '200':
+          description: Success (a plain string, ignored by the app)
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/changename:
+    post:
+      operationId: cloudChangeName
+      tags:
+      - cloud-api
+      summary: Rename the cloud user
+      description: ''
+      security:
+      - cloudBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudChangeUserNameModel'
+      responses:
+        '200':
+          description: Success (a plain string, ignored by the app)
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/deleteMyUserAccount:
+    post:
+      operationId: cloudDeleteAccount
+      tags:
+      - cloud-api
+      summary: Delete the cloud account
+      description: Destructive.
+      security:
+      - cloudBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudDeleteMyUserAccountModel'
+      responses:
+        '200':
+          description: Success (a plain string, ignored by the app)
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/forgottenpassword:
+    post:
+      operationId: cloudForgottenPassword
+      tags:
+      - cloud-api
+      summary: Send a password reset mail
+      description: ''
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudForgottenUserPasswordModel'
+      responses:
+        '200':
+          description: Success (a plain string, ignored by the app)
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/updateClientDevicePushId:
+    post:
+      operationId: cloudUpdateClientDevicePushId
+      tags:
+      - cloud-api
+      summary: Register the push token of a client device (cloud user)
+      description: ''
+      security:
+      - cloudBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudUpdateClientDeviceModel'
+      responses:
+        '200':
+          description: Success (a plain string, ignored by the app)
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/updateClientDevicepushid:
+    put:
+      operationId: cloudUpdateClientDevicePushIdObsolete
+      tags:
+      - cloud-api
+      summary: Obsolete variant of updateClientDevicePushId
+      description: Defined in the app, never called.
+      security:
+      - cloudBearer: []
+      deprecated: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudUpdateClientDeviceModel'
+      responses:
+        '200':
+          description: Success (a plain string, ignored by the app)
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/deleteClientDevice:
+    post:
+      operationId: cloudDeleteClientDevice
+      tags:
+      - cloud-api
+      summary: Delete a registered client device
+      description: Defined in the app, never called.
+      security:
+      - cloudBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudDeleteClientDeviceModel'
+      responses:
+        '200':
+          description: Success (a plain string, ignored by the app)
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/updatelocaluserclientdevice2:
+    post:
+      operationId: cloudUpdateLocalUserClientDevice
+      tags:
+      - cloud-api
+      summary: Register the push token of a Core-local user device
+      description: No authentication. Returns the cloud client device id that the app forwards to the Core.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudUpdateClientDeviceModel'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudClientDeviceInfo'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/updateclientdevicegetuser:
+    post:
+      operationId: cloudRefreshUserInfo
+      tags:
+      - cloud-api
+      summary: Refresh user info, location list and per-location authorization tokens
+      description: ''
+      security:
+      - cloudBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudUpdateClientDeviceGetGlobalUserInfoModel'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudCompleteUserInformation'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/getinfo:
+    get:
+      operationId: cloudGetInfoObsolete
+      tags:
+      - cloud-api
+      summary: Obsolete user info call
+      description: Defined in the app, never called.
+      security:
+      - cloudBearer: []
+      deprecated: true
+      parameters:
+      - name: deviceid
+        in: query
+        required: true
+        schema:
+          type: string
+        description: ''
+      - name: platform
+        in: query
+        required: true
+        schema:
+          type: string
+        description: ''
+      - name: SoftwareVersion
+        in: query
+        required: true
+        schema:
+          type: string
+        description: ''
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudCompleteUserInformation'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/getlocationsstatus:
+    post:
+      operationId: cloudGetLocationsStatus
+      tags:
+      - cloud-api
+      summary: Online status of Cores on the tunnel
+      description: ''
+      security:
+      - cloudBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudUserLocationsStatusRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CloudUserLocationsStatusReplyElement'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/getclouduserstatus:
+    post:
+      operationId: cloudGetUserStatus
+      tags:
+      - cloud-api
+      summary: Check whether an e-mail is a cloud user
+      description: ''
+      security:
+      - cloudBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CloudUserStatusRequest'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CloudUserStatusReplyElement'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/tunnelendpoints3:
+    get:
+      operationId: cloudGetTunnelEndpoints
+      tags:
+      - cloud-api
+      summary: Relay (tunnel) URLs and the updates host
+      description: No authentication.
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudTunnelEndpointsResponse'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/user/tunnelendpoints:
+    get:
+      operationId: cloudGetTunnelEndpointsObsolete
+      tags:
+      - cloud-api
+      summary: Obsolete list of tunnel URLs
+      description: Defined in the app, never called.
+      security: []
+      deprecated: true
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserApiClient'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/history/signature/:
+    get:
+      operationId: cloudGetHistorySignature
+      tags:
+      - cloud-api
+      summary: Get an Azure Table Storage SAS token for value history
+      description: The app then reads history rows directly from Azure Table Storage with this SAS, which is outside
+        this specification.
+      security:
+      - cloudBearer: []
+      parameters:
+      - name: tableName
+        in: query
+        required: true
+        schema:
+          type: string
+        description: ''
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudHistorySasSignature'
+        default:
+          description: Error. See CloudErrorBody.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CloudErrorBody'
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.UserHistoryApiClient.GetSasSignatureAsync'
+      x-confidence: observed-in-code
+      servers:
+      - url: https://cloudapi.taphome.com
+        description: TapHome cloud API
+      x-verified: false
+  /api/rules:
+    get:
+      operationId: updatesGetRules
+      tags:
+      - cloud-api
+      summary: Download the upgrade rules file
+      description: JSON UpgradeRulesFile with Core, firmware, image and package rules. The app also sends HEAD first,
+        and may add ?shorttoken=<last 4 chars of the Core access token>. Bearer is sent for cloud users and omitted
+        for local users. The app forces User-Agent curl/7.78.0.
+      security:
+      - cloudBearer: []
+      servers:
+      - url: https://{updatesHost}
+        description: Firmware and update rules host, from tunnelendpoints3 (updatesHost)
+        variables:
+          updatesHost:
+            default: updates.invalid
+            description: Value of updatesHost in the tunnelendpoints3 response.
+      parameters:
+      - name: shorttoken
+        in: query
+        required: false
+        schema:
+          type: string
+        description: ''
+      responses:
+        '200':
+          description: Upgrade rules
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.SoftwareUpdatesClient.DownloadUpgradeRulesFile'
+      x-confidence: observed-in-code
+      x-verified: false
+  /api/binaries/{fileTypeAndBranch}/{ruleId}/{fileName}:
+    get:
+      operationId: updatesGetBinary
+      tags:
+      - cloud-api
+      summary: Download an update binary
+      description: Resumable with the Range header. Integrity from the Content-MD5 header (base64) and the hash
+        in the rules file. The app then pushes the file to the Core in chunks with MessageUpdateCoreRequest or MessageUpdateModuleFirmwareRequest.
+      security:
+      - cloudBearer: []
+      servers:
+      - url: https://{updatesHost}
+        description: Firmware and update rules host, from tunnelendpoints3 (updatesHost)
+        variables:
+          updatesHost:
+            default: updates.invalid
+            description: Value of updatesHost in the tunnelendpoints3 response.
+      parameters:
+      - name: fileTypeAndBranch
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ''
+      - name: ruleId
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ''
+      - name: fileName
+        in: path
+        required: true
+        schema:
+          type: string
+        description: ''
+      responses:
+        '200':
+          description: File content
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+      x-evidence:
+      - 'TapHome.Android: TapHome.Core.Lib.Communication.SoftwareUpdatesClient.DownloadBinaryFile'
+      x-confidence: observed-in-code
+      x-verified: false
+schemas:
+  CloudRegisterUserModel:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      platform:
+        type: string
+      softwareVersion:
+        type: string
+      email:
+        type: string
+      password:
+        type: string
+      name:
+        type: string
+      languageCode:
+        type: string
+      pushProviderId:
+        type: integer
+        description: The app sends 0.
+  CloudLoginUserModel:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      platform:
+        type: string
+      softwareVersion:
+        type: string
+      email:
+        type: string
+      password:
+        type: string
+      languageCode:
+        type: string
+      loginAsGroup:
+        type: string
+        description: Unused by the app.
+      deviceName:
+        type: string
+  CloudUserInfo:
+    type: object
+    properties:
+      userId:
+        type: string
+        format: uuid
+      login:
+        type: string
+      email:
+        type: string
+      name:
+        type: string
+      createdOnUtc:
+        type: string
+        format: date-time
+      languageCode:
+        type: string
+  CloudClientDeviceInfo:
+    type: object
+    properties:
+      clientDeviceId:
+        type: integer
+        format: int64
+      deviceId:
+        type: string
+      pushId:
+        type: string
+      softwareVersion:
+        type: string
+      deviceName:
+        type: string
+      platform:
+        type: string
+  CloudUserLocation:
+    type: object
+    properties:
+      locationId:
+        type: string
+        format: uuid
+      name:
+        type: string
+      authorizationToken:
+        type: string
+        format: uuid
+        description: Per user and location credential, used as the secret in a cloud-account login to the Core.
+          Treat as a secret.
+      ipOnLocalNetwork:
+        type: string
+      partialAccessToken:
+        type: string
+        description: Masked setup token, only the last 4 characters are real.
+  CloudCompleteUserInformation:
+    type: object
+    properties:
+      userInfo:
+        $ref: '#/components/schemas/CloudUserInfo'
+      clientDeviceInfo:
+        $ref: '#/components/schemas/CloudClientDeviceInfo'
+      myLocations:
+        type: array
+        items:
+          $ref: '#/components/schemas/CloudUserLocation'
+  CloudGlobalUserRegisterLoginResponse:
+    type: object
+    properties:
+      token:
+        type: string
+        description: Bearer token for the other cloud calls.
+      myInfo:
+        $ref: '#/components/schemas/CloudCompleteUserInformation'
+  CloudChangeUserPasswordModel:
+    type: object
+    properties:
+      oldPassword:
+        type: string
+      newPassword:
+        type: string
+  CloudChangeUserNameModel:
+    type: object
+    properties:
+      name:
+        type: string
+  CloudDeleteMyUserAccountModel:
+    type: object
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+  CloudForgottenUserPasswordModel:
+    type: object
+    properties:
+      email:
+        type: string
+      languageCode:
+        type: string
+  CloudUpdateClientDeviceModel:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      platform:
+        type: string
+      softwareVersion:
+        type: string
+      deviceName:
+        type: string
+      pushId:
+        type: string
+  CloudDeleteClientDeviceModel:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      platform:
+        type: string
+  CloudUpdateClientDeviceGetGlobalUserInfoModel:
+    type: object
+    properties:
+      deviceId:
+        type: string
+      platform:
+        type: string
+      softwareVersion:
+        type: string
+      deviceName:
+        type: string
+      languageCode:
+        type: string
+  CloudUserLocationsStatusRequest:
+    type: object
+    properties:
+      locationIds:
+        type: array
+        items:
+          type: string
+          format: uuid
+  CloudUserLocationsStatusReplyElement:
+    type: object
+    properties:
+      locationId:
+        type: string
+        format: uuid
+      isOnline:
+        type: boolean
+      connectionCreatedOnUtc:
+        type: string
+        format: date-time
+      disconnectedOnUtc:
+        type: string
+        format: date-time
+  CloudUserStatusRequest:
+    type: object
+    properties:
+      logins:
+        type: array
+        items:
+          type: string
+  CloudUserStatusReplyElement:
+    type: object
+    properties:
+      userId:
+        type: string
+        format: uuid
+      login:
+        type: string
+      userRegistration:
+        type: integer
+        description: 0 NotFound, 1 Placeholder, 2 Valid.
+      registeredOnUtc:
+        type: string
+        format: date-time
+  CloudTunnelEndpointsResponse:
+    type: object
+    properties:
+      tunnels:
+        type: array
+        items:
+          type: string
+      cloudTimeUtc:
+        type: string
+        format: date-time
+      updatesHost:
+        type: string
+        description: Host of the firmware and update rules API.
+  CloudHistorySasSignature:
+    type: object
+    properties:
+      tableName:
+        type: string
+      expiryTime:
+        type: string
+        format: date-time
+      saSToken:
+        type: string
+        description: Azure Table Storage SAS token. Treat as a secret.
+  CloudErrorBody:
+    type: object
+    description: Problem details body. Some failures return a bare integer CommonErrorCodes value or plain text
+      instead.
+    properties:
+      type:
+        type: string
+      title:
+        type: string
+      status:
+        type: integer
+      detail:
+        type: string
+      instance:
+        type: string

@@ -1,0 +1,937 @@
+# Operations for devices, modules, interfaces (CCU), zones, inputs and outputs (tags: devices, modules, interfaces, io-check, zones).
+# Format of every entry (all files in this directory share it):
+#   id                  unique operationId
+#   tag                 one of the spec tags
+#   kind                read | write | subscribe | action
+#   request / response  protobuf class names from work/catalog/official.json (null when none)
+#   broadcasts          broadcast classes the Core pushes as a consequence
+#   summary, description, minProtocolVersion, evidence, confidence
+#   endpoint            optional, WebSocket endpoint (default /Core)
+#   security            optional, "none" for operations that need no session
+#   bareResponse        optional, the endpoint sends the response class without a MessageBase wrapper
+# Source: static reading of the decompiled TapHome Official Android app 2025.2.32375. Nothing here is verified against a live Core
+# unless openapi/verification.yaml says so. "GenericResponse OK" means MessageGenericResponse with ErrorCode == 1.
+
+- id: getDeviceListOnLogin
+  tag: devices
+  kind: read
+  request: MessageLoginRequest
+  response: MessageLoginResponse
+  broadcasts: []
+  summary: The full interface and device model reaches the client inside the login response.
+  description: |-
+    There is no "get all devices" request. MessageLoginResponse carries Ccus (GenericCcu[]), Devices (GenericDevice[]) and DeviceTimers.
+    On a reconnect the same data arrives in MessageReconnectResponse (Ccus, Devices, plus changeset ids and smart rules).
+    Each GenericDevice already holds identity (ID, Name, Icon, Model, Interface, SerialNumber, HardwareParentId, ZoneId, CategoryId,
+    DeviceType int id), the property dictionary (DeviceProperties, string to string), CurrentValues (ValueLog per value type id),
+    SupportedValueLogTypes and SupportedActionTypes. Transport and login details are covered by the transport notes.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnect'
+  - 'TapHome.Core.Lib.Model: MessageLoginResponse, MessageReconnectResponse'
+  confidence: observed-in-code
+- id: deviceListUpdated
+  tag: devices
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Core pushes the whole device and interface list after structural changes.
+  description: |-
+    Payload: Ccus[] and Devices[] (complete lists). The client merges it with PutDevicesIncrementally(allDevices: true), which also
+    removes devices that are no longer present, and replaces its CCU list. The app also clears its "devices update in progress"
+    flag when this broadcast arrives, so the Core is expected to send it after a TapHome Bus configuration save, a module add,
+    and deletions. No subscription request is needed; every logged-in client receives it.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.DevicesUpdateInProgress'
+  confidence: observed-in-code
+- id: deviceUpdated
+  tag: devices
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Core pushes one full GenericDevice after its configuration changed.
+  description: |-
+    Payload: one complete GenericDevice (not a delta). Client merges it by ID. Sent after UpdateDeviceProperties, name, zone or
+    type changes. A client that wants the new state should wait for this broadcast (or re-read after the response).
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+  confidence: observed-in-code
+- id: deviceTimersUpdated
+  tag: devices
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageDeviceTimersUpdatedBroadcast
+  summary: Core pushes the active timers (manual override, fade, smart rule timers) of one device.
+  description: |-
+    Payload: DeviceId and a list of DeviceTimerInfo (timing parameters, origin, smart rule id, user id, affected value type).
+    Used for the manual override countdown. Read-only for configuration purposes.
+  minProtocolVersion: 24
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+  confidence: observed-in-code
+- id: addDevice
+  tag: devices
+  kind: write
+  request: MessageAddDeviceRequest
+  response: MessageAddDeviceResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Create a device (the app uses it only for virtual devices and variables).
+  description: |-
+    Fields the app fills: DeviceName (made unique client-side against existing device names), Icon (always DeviceIcon.Unknown),
+    Interface (the C# interface class name, for example "Switch", "Dimmer", "Thermostat", "PushButton", "HueBulb"),
+    Model (for example "VirtualSwitch", "VirtualAnalogOutput", "VirtualThermostatDummy", "VirtualAlarm", "VirtualPushButton",
+    "VirtualMultiValueSwitch", "VirtualRgbLight", "VirtualTunableWhiteLight", "VirtualTemperatureSensor"), DeviceProperties
+    (type specific defaults such as OnStateName/OffStateName/OnStateIconId/OffStateIconId/SafeValues, produced by DeviceTypeHelper),
+    DeviceTypeId (int DeviceType, 0 for none), CcuId (the app always sends null, so the Core attaches the device to the virtual CCU).
+    SerialNumber is never sent. The Core allocates the int device id. Response: AddedDevice (full GenericDevice) and Ccus (full CCU list).
+    The app then opens the settings page for the new device, where the user edits properties with updateMultipleDevicesProperties.
+    Physical devices (TapHome Bus, Modbus, Packet Parser, ZigBee, KNX) are not created with this message; see tapHomeBusConfig and
+    the interface specific config messages. Protocol gates: device type ids need protocol 26 (4 for ids that existed before), tunable
+    white light needs 74, water/gas meters and rain gauge 59, electricity meter group 14.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.AddDevice'
+  - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddVirtualDeviceDialog'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddDevice'
+  confidence: observed-in-code
+- id: updateMultipleDevicesProperties
+  tag: devices
+  kind: write
+  request: MessageUpdateMultipleDevicesPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Apply a property delta to one or many devices (the main device configuration write).
+  description: |-
+    Granularity is a property delta: DeviceIds[] plus DeviceProperties (string to string) that contains only the keys that changed.
+    The app builds the delta by comparing its edited copy with the dictionary received from the Core (GetChangedDeviceProperties).
+    The same delta is applied to every listed device, so multi-select edits only send properties common to all.
+    Known keys seen in the app: Name, ZoneId and CategoryId (Guid strings), DeviceType (int id as string from protocol 26, enum name before),
+    StartupValueSource, ManualChangeTimeout, Icon, IconId, OnStateName, OffStateName, OnStateIconId, OffStateIconId, SafeValues,
+    SerializedValueLogTypeConversion, Value0Name..Value9Name and MultiValueSwitchValue* for multi-value switches, plus interface and
+    model specific keys (for example Configuration JSON for RGB/blind/DMX, ScreensSerialized for zone controllers).
+    Keys the UI never sends because they are read-only or hidden: ID, Model, SerialNumber, PollInterval, IP, LogValues, IsIgnored,
+    HardwareParentId, OutputType, OutputAddress, IsHardwareReadable, CanStartupValueBeSet.
+    Changing DeviceType also sends the type specific defaults (state names, icons, safe values) because the UI rewrites them;
+    a client that only sets DeviceType gets the type without those defaults.
+    Response is GenericResponse; the app only checks that the task completed, not ErrorCode.
+    Values are validated by the Core, not by the app (the app only filters the type picker to types valid for the interface).
+    Persists immediately.
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDeviceProperties'
+  - 'TapHome.Android: TapHome.Commons.ServiceSettingsManager.SaveChanges'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateMultipleDevicesProperties'
+  confidence: observed-in-code
+- id: updateDeviceName
+  tag: devices
+  kind: write
+  request: MessageUpdateDeviceNameRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Rename one device.
+  description: |-
+    Fields: DeviceId, Name. The rename dialog uses this message; the settings page renames through the Name key of
+    updateMultipleDevicesProperties. Success is any completed response. Names are not forced unique by this message
+    (uniqueness is only enforced client-side in addDevice).
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDeviceName'
+  confidence: observed-in-code
+- id: setDeviceType
+  tag: devices
+  kind: write
+  request: MessageUpdateMultipleDevicesPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Change the device type (semantic role such as Light, PowerOutlet, WindowSensor) of existing devices.
+  description: |-
+    Not a separate message. Send DeviceProperties {"DeviceType": "<int id>"} through updateMultipleDevicesProperties.
+    Valid ids depend on the device interface (derived from the value types the device supports): Switch, PushButton, ReedContact,
+    Slide, AnalogOutput, TemperatureSensor, MultiValueSwitch, Variable, ElectricityMeter, AccessInput, AnalogInput. See 02-devices.md.
+    DeviceType 0 (None) is always allowed. The app also sets the type specific default properties in the same message.
+    For TapHome Bus terminals the type is set at configuration time instead, see tapHomeBusConfig (DeviceTypeProperties attribute).
+    Requires protocol 26 for int ids and 62 for choosing the type of bus terminals.
+  minProtocolVersion: 26
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.DeviceTypeHelper.GetSupportedDeviceTypes'
+  - 'TapHome.Android: TapHome.Commons.ServiceSettingsManager.CreateDeviceTypePickerElement'
+  confidence: observed-in-code
+- id: assignDevicesToZone
+  tag: zones
+  kind: write
+  request: MessageUpdateMultipleDevicesPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Put devices into a zone.
+  description: |-
+    DeviceProperties {"ZoneId": "<zone guid>"}. A zone is a Dashboard of type ZoneDashboard (see addZone). Guid.Empty means no zone.
+    The app warns when a device already belongs to another living zone but does not block the change.
+    When a module (hardware parent) gets a zone, the UI also offers to move its children by sending ZoneId for them.
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDevicesZoneOrCategory'
+  - 'TapHome.Android: TapHome.Commons.ServiceSettingsManager (ZoneId handling)'
+  confidence: observed-in-code
+- id: assignDevicesToCategory
+  tag: zones
+  kind: write
+  request: MessageUpdateMultipleDevicesPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Put devices into a category.
+  description: Same as assignDevicesToZone with the key "CategoryId" and a Dashboard of type CategoryDashboard.
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDevicesZoneOrCategory'
+  confidence: observed-in-code
+- id: deleteDevice
+  tag: devices
+  kind: write
+  request: MessageDeleteDeviceRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Delete one device.
+  description: |-
+    Fields: DeviceId, ForceDelete. The app always sends ForceDelete=true. Without force the Core presumably refuses when smart rules
+    or other devices depend on the device (ErrorCode 3, the app shows a "delete warning"). Response ErrorCode 1 means deleted
+    (the app then removes the device from its cache), 15 means failure, 3 means refused.
+    The module replace flow deletes the module and its terminal devices with separate calls, so assume children are not removed implicitly.
+    Persists immediately.
+  minProtocolVersion: 1
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.DeleteDevice'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteDevice / DeleteDevices'
+  confidence: observed-in-code
+- id: deleteDevices
+  tag: devices
+  kind: write
+  request: MessageDeleteDevicesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Delete several devices in one request.
+  description: |-
+    Fields: DeviceIds[], ForceDelete (app sends true). Same ErrorCode handling as deleteDevice (1 ok, 3 refused, 15 failure).
+    Older Cores (protocol below 43) get one deleteDevice per id instead. No per-device result is returned, so a partial failure is not visible.
+  minProtocolVersion: 43
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.DeleteDevices'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteDevices'
+  confidence: observed-in-code
+- id: updateDeviceSerialNumber
+  tag: devices
+  kind: write
+  request: MessageUpdateDeviceSerialNumberRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Change the serial number of one device (legacy, used by module replace on old Cores).
+  description: |-
+    Fields: DeviceId, SerialNumber. For TapHome Bus devices the serial number encodes the hardware: module serial "XXXX-XXXX-XXXX-XXXX"
+    (three dashes) and terminal devices "<moduleSN>:<Type>[-<Terminal>]-<index>". See 02-devices.md.
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDeviceSerialNumbersOldCore'
+  confidence: observed-in-code
+- id: updateDeviceSerialNumbers
+  tag: modules
+  kind: write
+  request: MessageUpdateDeviceSerialNumbersRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Re-home many terminal devices from an old module to a new module (core step of module replacement).
+  description: |-
+    Fields: SerialNumbers (dictionary device id to new serial number) and HardwareParentId (device id of the NEW module).
+    The app builds each new serial by replacing the old module serial prefix with the new module serial in the child serial number.
+    Response ErrorCode 1 is success. Part of replaceModule.
+  minProtocolVersion: 46
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDeviceSerialNumbers'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.TapHomeBusModuleReplacePage.ReplaceModule'
+  confidence: observed-in-code
+- id: replaceModule
+  tag: modules
+  kind: write
+  request: MessageUpdateDeviceSerialNumbersRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  - MessageDeviceListUpdatedBroadcast
+  summary: Replace a TapHome Bus module by another one while keeping the devices and their configuration.
+  description: |-
+    Composite flow, no dedicated message. Preconditions: the new module is already a device in the list (added with tapHomeBusConfig AddModules).
+    The target module type must be in the compatibility list of the old type (TapHomeBusModuleReplaceHelper) and must have enough terminals.
+    Steps the app runs:
+      1. If the new module already has terminal devices, delete them first (deleteDevices, forceDelete) after a captcha confirmation.
+      2. updateDeviceSerialNumbers with {childDeviceId: newSerial} for every old child that fits on the new module and HardwareParentId = new module id.
+         Children without a matching terminal on the new module (terminal index above the new count) go to a delete list.
+         Children whose serial ends in "-INT" or "-EXT" (internal sensors) are moved as they are.
+      3. updateMultipleDevicesProperties on the new module with the module level properties that differ between old and new
+         (limited to the model's ServiceSettingsSupportedProperties).
+      4. deleteDevice for the old module, then deleteDevices for the leftover children and the new module's INT/EXT devices.
+      5. For protocol below 13 the app also sends MessageRestartCoreRequest; newer Cores need no restart.
+    The sequence is not atomic: a failure in the middle leaves a half-moved configuration.
+  minProtocolVersion: 46
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonPages.TapHomeBusModuleReplacePage (ReplaceModule, OnDeviceSerialNumbersUpdated,
+    DeleteDevice, OnModuleReplaced)'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.TapHomeBusModuleReplaceHelper'
+  confidence: observed-in-code
+- id: setManualOverrideState
+  tag: devices
+  kind: write
+  request: MessageSetDeviceManualOverrideStateRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceValueChangedBroadcast
+  - MessageDeviceTimersUpdatedBroadcast
+  summary: Switch a device between automatic and manual override mode.
+  description: |-
+    Fields: DeviceId, DeviceName, ActivateManualOverride. The app computes the target from the OperationMode value (1=manual, 2=automatic) and the
+    ManualChangeTimeout property (0 disables manual override, -2 default). Refused in client when the safety smart rule is active.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.ChangeDeviceOperationMode'
+  confidence: observed-in-code
+- id: setManualOverrideSettings
+  tag: devices
+  kind: write
+  request: MessageSetDeviceManualOverrideSettingsRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Set the manual override timeout of a device.
+  description: |-
+    Fields: DeviceId, DeviceName, Value, ValueInSeconds. Overlaps with the ManualChangeTimeout device property.
+    Which of the two the Core prefers is untested.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SetDeviceManualOverrideSetting'
+  confidence: observed-in-code
+- id: addZone
+  tag: zones
+  kind: write
+  request: MessageAddDashboardRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardUpdatedBroadcast
+  summary: Create a zone or a category.
+  description: |-
+    Zones and categories are Dashboard objects. The client allocates DashboardId (Guid). DashboardTypeId: 1 ZoneDashboard,
+    2 CategoryDashboard (also 0 original dashboard, 3 and 4 dynamic zone/category, 5 old migrated). Other fields: ParentDashboardId (optional),
+    Name, AccentColorId, Version, Content (serialized layout bytes), ToolbarImageId, IconId. Devices are linked afterwards through the
+    ZoneId or CategoryId device property. The full dashboard model belongs to the dashboards notes; this entry covers only the device linkage.
+    Dashboards also arrive in the reconnect response.
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddDashboard'
+  - 'TapHome.Core.Lib.Model: DashboardType'
+  confidence: observed-in-code
+- id: updateZoneProperties
+  tag: zones
+  kind: write
+  request: MessageUpdateDashboardPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardPropertiesUpdatedBroadcast
+  summary: Change zone or category properties (name, color, icon).
+  description: 'Fields: DashboardId, Properties (string dictionary delta). Layout content is changed with MessageUpdateDashboardContentRequest.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDashboardProperties'
+  confidence: observed-in-code
+- id: deleteZone
+  tag: zones
+  kind: write
+  request: MessageDeleteDashboardRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardDeletedBroadcast
+  summary: Delete a zone or category.
+  description: |-
+    Field: DashboardId. Dashboards carry a DeletedOnUtc stamp (soft delete); the app treats devices pointing to a deleted zone as unassigned.
+    Whether the Core clears ZoneId on devices is not visible in the client.
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteDashboard'
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.ShowUpdateDevicesZoneOrCategoryWarning'
+  confidence: inferred
+- id: addInterface
+  tag: interfaces
+  kind: write
+  request: MessageAddCcuRequest
+  response: MessageAddCcuResponse
+  broadcasts:
+  - MessageCcuUpdatedBroadcast
+  - MessageDeviceListUpdatedBroadcast
+  summary: Add a communication interface (CCU) such as Modbus RTU, KNX or ZigBee.
+  description: |-
+    Fields: Model (the CCU model string) and Properties (string dictionary; the app always adds Name = translated type name).
+    Models the app can add: JablotronCCU, ModbusRtuCCU, ModbusTcpCCU, KNXCCU, LGACCCU, DaikinACCCU, TapHomeProtocolSerialCCU,
+    TapHomeProtocolTcpCCU, TapHomeProtocolUdpCCU, SIPDoorbellUdpCCU, TPLinkCCU (debug only), HttpApiCCU, PacketParserCCU, ZigBeeCCU,
+    MqttCCU, OwfsCCU (debug only). Some models are sent with default properties (Model, SerialNumber "", PollInterval 5 or 60, IP "invalid",
+    LogValues false, IsIgnored false, Port, Password, plus type specific keys such as IpAddress/TcpPort/UdpAddress/UdpPort/SIPUsers).
+    Protocol gates: KNX 12, SIPDoorbell 24, HttpApi 31 (hidden from 66), ZigBee 31, PacketParser 66, Mqtt 69, Owfs 75.
+    TapHomeBusCCU, VirtualCCU, VirtualVariablesCCU, WeatherCCU, NetAtmoCCU, PhilipsHueCCU and HomegearCCU are not created by this dialog
+    (TapHomeBus, Virtual and Weather are built in; the others come from the Core or other flows).
+    Response: Ccu (new GenericCcu with Core-allocated CcuId). Failure: GenericResponse with ErrorCode 3 and ErrorMessage.
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddCcuDialog'
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.AddCcu'
+  confidence: observed-in-code
+- id: deleteInterface
+  tag: interfaces
+  kind: write
+  request: MessageDeleteCcuRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Delete an interface and its devices.
+  description: |-
+    Field: CcuId. Response ErrorCode 1 is success (the app then drops the CCU from its cache). The UI asks a captcha confirmation and warns that
+    the interface's devices are removed; the Core removal of child devices is expected but not visible in the client.
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.DeleteCcu'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.CcuPages.BaseCcuPage.ShowDeleteCcuDialog'
+  confidence: observed-in-code
+- id: updateInterfaceProperties
+  tag: interfaces
+  kind: write
+  request: MessageUpdateCcuPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageCcuUpdatedBroadcast
+  summary: Change interface properties (name, poll interval, port, addresses, ...).
+  description: |-
+    Fields: CcuId, Properties (delta of changed keys, string to string). Keys: Name, PollInterval, IP, LogValues, IsIgnored, Model, SerialNumber and
+    type specific keys. The serial port is the property "Port" holding system port names separated by commas
+    (examples: /dev/ttyS0 = BUS, /dev/ttyBUS0..2 = BUS1..3, /dev/ttyBUS3 internal, /dev/ttyFTDI_*). Port pickers use getAvailableInterfacePorts.
+    Response ErrorCode 1 is success. Modbus templates also push SuggestedCcuProperties through this message.
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.UpdateCcuProperties'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.CcuPages.BaseCcuPage.SaveChanges'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.TerminalHelper'
+  confidence: observed-in-code
+- id: updateInterfacePorts
+  tag: interfaces
+  kind: write
+  request: MessageUpdateCcuPortsRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageCcuUpdatedBroadcast
+  summary: Legacy message to set the serial ports of an interface.
+  description: |-
+    Fields: CcuId, Ports (comma separated system port names). The current app UI writes the "Port" property through updateInterfaceProperties
+    instead; this message is only reachable through UpdateCcuPortsAsync and has no caller in the UI.
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateCcuPortsAsync'
+  confidence: inferred
+- id: getAvailableInterfacePorts
+  tag: interfaces
+  kind: read
+  request: MessageGetAvailableCcuPortsRequest
+  response: MessageGetAvailableCcuPortsResponse
+  broadcasts: []
+  summary: List serial ports (UARTs) that can be assigned to interfaces.
+  description: |-
+    Response AvailableCcuPorts is a JSON string, a list of UartDescription: SystemName (for example /dev/ttyS0), DisplayName, CcuId (current owner,
+    nullable) and PortType (0 none, 1 CCU, 2 slave interface).
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.GetAvailableTerminals'
+  confidence: observed-in-code
+- id: getUsedTcpPorts
+  tag: interfaces
+  kind: read
+  request: MessageGetUsedTcpPortsRequest
+  response: MessageGetUsedTcpPortsResponse
+  broadcasts: []
+  summary: List TCP ports already used by interfaces or slave interfaces.
+  description: |-
+    Response UsedPorts is a JSON list of UsedPort {Port, UsedBy (PortType), Id}. Used to prevent port clashes when configuring TCP based interfaces.
+    MessageGetUsedUdpPortsRequest/Response is the UDP twin.
+  minProtocolVersion: 40
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.GetUsedTcpPorts'
+  confidence: observed-in-code
+- id: interfaceUpdated
+  tag: interfaces
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageCcuUpdatedBroadcast
+  summary: Core pushes one GenericCcu after it changed.
+  description: 'Payload: one complete GenericCcu (CcuId, Name, Model, SerialNumber, PollInterval, IP, LogValues,
+    IsIgnored, CcuProperties).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+  confidence: observed-in-code
+- id: scanForNewDevices
+  tag: interfaces
+  kind: write
+  request: MessageLongRunningTaskRequest
+  response: MessageLongRunningTaskResponse
+  broadcasts:
+  - MessageLongRunningTaskProgress
+  - MessageDeviceListUpdatedBroadcast
+  summary: Start a device scan (install mode) on an interface and stream found devices.
+  description: |-
+    Used for TapHome Bus (new modules), ZigBee and other scannable interfaces. The client generates TaskId (Guid) and wraps
+    ScanForNewDevicesTaskRequestParameters {CcuId, ScanDuration (TimeSpan)} in MessageLongRunningTaskRequest. The app default duration is 30 s
+    and the client timeout is ScanDuration + 15 s. While scanning the Core sends MessageLongRunningTaskProgress messages (Progress 0..100, or -1) whose
+    Parameters is ScanForNewDevicesTaskResponseParameters {CcuId, NewDevices[]}. The found GenericDevice objects are already real devices
+    that the Core created; the app only merges them into its list (PutDevicesIncrementally) and shows them, there is no accept step.
+    Final response is MessageLongRunningTaskResponse, or MessageGenericResponse with ErrorCode 1 or 25 (finished) or 14 (a scan is already running).
+    Cancel with cancelLongRunningTask. Cores below protocol 56 use scanForNewDevicesLegacy.
+  minProtocolVersion: 56
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.StartDeviceScan'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.FindNewDevicesPage.OnScanProgress'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ExecuteLongRunningTask'
+  confidence: observed-in-code
+- id: scanForNewDevicesLegacy
+  tag: interfaces
+  kind: write
+  request: MessageScanForNewDevicesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDevicesScanStatusBroadcast
+  - MessageNewDevicesFoundDuringScanBroadcast
+  summary: Start or stop a device scan on Cores older than protocol 56.
+  description: |-
+    Fields: CcuId, Duration (seconds, app default 30), RequestForStop (true stops a running scan). Response ErrorCode 1 means accepted, 14 means a scan is
+    already running. Progress arrives as MessageNewDevicesFoundDuringScanBroadcast {CcuId, NewDevices[]} and MessageDevicesScanStatusBroadcast
+    {CcuId, Started}. Found devices are already created by the Core.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.StartDeviceScan'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.FindNewDevicesPageV1'
+  confidence: observed-in-code
+- id: cancelLongRunningTask
+  tag: interfaces
+  kind: action
+  request: MessageLongRunningTaskCancelRequest
+  response: null
+  broadcasts: []
+  summary: Cancel a running long task such as a scan.
+  description: 'Field: TaskId (the Guid the client generated). Sent without waiting for a reply (SendMessageNoReply).'
+  minProtocolVersion: 56
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.CancelLongRunningTask'
+  confidence: observed-in-code
+- id: tapHomeBusConfig
+  tag: modules
+  kind: write
+  request: MessageTapHomeBusConfigRequest
+  response: MessageTapHomeBusConfigResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Add a TapHome Bus module by serial number, or define which terminals of a module become which devices.
+  description: |-
+    Fields: DeviceId (the module's device id; 0 when adding), CcuId (bus interface id; 0 when configuring), ConfigJson (JSON of TapHomeBusModuleConfig).
+    Two uses.
+    Add module: DeviceId 0, CcuId = bus CCU, ConfigJson {"AddModules":["<serial>"]}. The app first checks the serial: at least 16 characters and exactly
+    three '-' characters, and that no device with this serial exists. Response AddedDevices[] holds the module device; empty means "not found on the bus".
+    Configure terminals: DeviceId = module id, CcuId 0, ConfigJson {"Devices":[{"Index":n,"Type":"...","ExtraAttributes":{...}}], "PWMGroups":[...]}.
+    The JSON is the COMPLETE desired mapping of all configured terminals of the module, not a delta: terminals missing from the list are removed
+    (the UI shows the counts of AddedDevices and RemovedDevices from the response). Index is 1 based inside its terminal group.
+    Type values: Reed, PushButton, ImpulseCounter, Switch, SwitchOnUO, Blind, BlindOnUO, EncoderBlind, CurrentLimitedBlind, EncoderSlat, Slide, SlideOnUO,
+    EncoderSlide, CurrentLimitedSlide, Thermometer, AnalogOutput, AnalogInput, LedDimmer, Dimmer, AnalogOutputOnDO, AnalogOutputOnUO, RGB, WG (Wiegand), TunableWhite.
+    ExtraAttributes keys: DeviceName, DeviceZoneId, DeviceCategoryId (protocol 16 and up), TerminalType (DI, DO, UI, UO, AO, NTC), TerminalUp and TerminalDown
+    (blinds, "DO<n>" or "UO<n>"), RGBOutputRed/Green/Blue/White and TunableWhiteOutput1/2 ("AO<n>" or "UO<n>"), OutputAddress/DmxOutputType (DMX),
+    AnalogOutputOnPWMPeriod/PowerRequired/Priority/GroupId, OnStateName/OffStateName (presence sensors), DeviceTypeProperties (JSON {"DeviceType":"<id>", defaults...},
+    protocol 62 and up, only when the user picked a non-default type that the interface allows).
+    The app does not send the configuration when the exported JSON equals the one it exported on load.
+    Persistence: applied and stored by the Core; the app only toggles a "devices update in progress" flag until MessageDeviceListUpdatedBroadcast arrives.
+    A new terminal device gets serial "<moduleSN>:<Type>[-<TerminalType>]-<index>" and HardwareParentId = module device id.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.TapHomeBusCommunicationHelper.SaveConfiguration / AddModule'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.TapHomeBusModuleConfigurationPage.ExportConfig'
+  - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.TapHomeBusModuleConfig'
+  confidence: observed-in-code
+- id: getModuleInfo
+  tag: modules
+  kind: read
+  request: MessageGetModuleInfoRequest
+  response: MessageGetModuleInfoResponse
+  broadcasts:
+  - MessageGetModuleUptimeBroadcast
+  - MessageGetModuleVccAndTemperatureBroadcast
+  - MessageAoGetMainsSupplyStatusBroadcast
+  summary: Read hardware revision, firmware version, protocol, architecture, port and bus statistics of one module.
+  description: |-
+    Field: ModuleId (device id of the module). Response: BoardHwRevision, BoardSwVersion, ProtocolVersion (byte), ArchitectureTypeId (0 none, 1 Xmega, 2 STM, 3 GD;
+    unknown values are treated as Xmega), CommunicationPort (system port name), CommunicationStatistics (JSON TapHomeBusModuleCommunicationStats:
+    NumberRequests, PacketsSent, NotConfirmed, CRCErrors, MaximumResponseTime, Timeouts, TimeoutsSinceLastResponse, LowLevelPacketErrorRatio).
+    The module page listens to uptime, supply voltage/temperature and mains status broadcasts while it is open; what makes the Core emit them
+    (opening the page, this request, or a periodic job) is not visible in the client.
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonPages.TapHomeBusModuleConfigurationPage.UpdateModuleInfo / HandleGetModuleInfo'
+  confidence: observed-in-code
+- id: getAllModulesInfo
+  tag: modules
+  kind: read
+  request: MessageGetAllModulesInfoRequest
+  response: MessageGetAllModulesInfoResponse
+  broadcasts:
+  - MessageGetAllModulesUptimeBroadcast
+  summary: Read communication health of every module on a bus interface.
+  description: |-
+    Field: CcuId. Response is parallel arrays indexed together: DeviceIds[], CommunicationStatistics[] (JSON per module), CommunicationPorts[],
+    ResetStatus[] (bit flags of the last MCU reset: 1 watchdog, 2 brown-out, 4 power-on, 8 spike, 0x10 software, 0x20 external, 0x40 option byte)
+    and one BusErrorCode (0 none, 1 received characters outside a packet). The scanner page repeats the request about every 4 seconds.
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonPages.DeviceScanerPage.GetAllModulesInfo'
+  confidence: observed-in-code
+- id: resetModulesStatistics
+  tag: modules
+  kind: write
+  request: MessageAllModulesResetStatisticsRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Reset the bus communication counters of all modules of a bus interface.
+  description: 'Field: CcuId. Touches only diagnostic counters.'
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ResetModulesStatistics'
+  confidence: observed-in-code
+- id: getModulesHwRevision
+  tag: modules
+  kind: read
+  request: MessageGetModulesBoardHwRevisionRequest
+  response: MessageGetModulesBoardHwRevisionResponse
+  broadcasts: []
+  summary: Read hardware revisions of several modules in one call.
+  description: 'Field: ModuleIds[] (device ids). Response BoardHwRevisions[] in the same order. Used by the firmware
+    update overview.'
+  minProtocolVersion: 60
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetModulesHwRevision'
+  confidence: observed-in-code
+- id: getModuleDiagnosticsData
+  tag: modules
+  kind: read
+  request: MessageGetModuleDiagnosticsDataRequest
+  response: MessageGetModuleDiagnosticsDataResponse
+  broadcasts: []
+  summary: Poll live raw diagnostic samples (input levels, currents) of one module.
+  description: |-
+    Fields: ModuleId, IncludeMetaData (true on the first call to receive column names). Response: MetaData (string header, CSV-like) and
+    Data (dictionary line index to list of int samples). The app polls every 1.5 seconds and writes a CSV. Only supported by newer module firmware
+    (the app checks the board software version before offering it).
+  minProtocolVersion: 84
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.TapHomeBusCommunicationHelper.GetModuleDiagnosticsData'
+  confidence: observed-in-code
+- id: moduleBlinkLed
+  tag: modules
+  kind: action
+  request: MessageDeviceAction
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Identify a module physically by blinking its LED.
+  description: |-
+    MessageDeviceAction with Action "module-led-start" or "module-led-stop", DeviceId and DeviceName of the module, no parameters.
+    The configuration page starts the blinking when opened and stops it on leaving. The ITapHomeBusModule interface also offers a short blink
+    but the app has no separate action key for it.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.TapHomeBusCommunicationHelper.StartBlinkingLed / StopBlinkingLed'
+  confidence: observed-in-code
+- id: moduleIdentification
+  tag: modules
+  kind: action
+  request: MessageDeviceAction
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Start or stop identification mode on a module (alternative to LED blinking).
+  description: |-
+    MessageDeviceAction with Action "module-identification-start" or "module-identification-stop", DeviceId and DeviceName of the module.
+    Used by the module configuration page; the exact difference to module-led-start (probably model specific) is not visible.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonPages.TapHomeBusModuleConfigurationPage (lines around module-identification)'
+  confidence: observed-in-code
+- id: moduleUptime
+  tag: modules
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageGetModuleUptimeBroadcast
+  - MessageGetAllModulesUptimeBroadcast
+  - MessageGetModuleVccAndTemperatureBroadcast
+  - MessageAoGetMainsSupplyStatusBroadcast
+  summary: Uptime, supply voltage, temperature and mains supply status pushed by the Core.
+  description: |-
+    UptimeBroadcast {DeviceId, Uptime}, AllModulesUptimeBroadcast {DeviceIds[], Uptimes[]}, VccAndTemperature {DeviceId, Vcc, Temperature, Vcc24},
+    AoMainsSupplyStatus {DeviceId, Voltage, Frequency, PulseLength, ErrorCount, FrequencyErrorTime} (analog output modules).
+    The client registers listeners only; no request starts them in the app code. Whether they flow without a request is an open question.
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+  confidence: inferred
+- id: blindStartSoftwareCalibration
+  tag: modules
+  kind: action
+  request: MessageTapHomeBusBlindStartSoftwareCalibrationRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Start software calibration of a blind output on a bus module.
+  description: |-
+    Fields: CcuId, DeviceSerialNumber (serial of the blind terminal device). Poll the result with blindGetSoftwareCalibrationResult.
+    Moves the shutter motor, so it is not a read-only test.
+  minProtocolVersion: 51
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.TapHomeBusBlindStartSoftwareCalibration'
+  confidence: observed-in-code
+- id: blindGetSoftwareCalibrationResult
+  tag: modules
+  kind: read
+  request: MessageTapHomeBusBlindGetSoftwareCalibrationResultRequest
+  response: MessageTapHomeBusBlindGetSoftwareCalibrationResultResponse
+  broadcasts: []
+  summary: Read the state and measured values of a blind software calibration.
+  description: 'Fields: CcuId, DeviceSerialNumber. Response: CalibrationState (byte), start times (5 ms units),
+    position and step counters, max currents and more.'
+  minProtocolVersion: 51
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.TapHomeBusBlindGetSoftwareCalibrationResult'
+  confidence: observed-in-code
+- id: updateModuleFirmware
+  tag: modules
+  kind: write
+  request: MessageUpdateModuleFirmwareRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUpdateProgressBroadcast
+  summary: Upload firmware to a module in chunks (touch point only).
+  description: |-
+    Fields: DeviceId, FileName, FirmwareVersion, Position, TotalFileLength, Buffer (chunk bytes), Md5Hash, SessionId. Newer Cores use the long task
+    ExecuteFwUpdateTaskRequestParameters instead. Progress via MessageUpdateProgressBroadcast {DeviceId, UpdateCode, ErrorMessage, SessionID}.
+    Out of scope for the first CLI version; included so nobody calls it by accident.
+  minProtocolVersion: 10
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SendUpdateModuleFirmwareChunk'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateModuleFirmwareRequest'
+  confidence: inferred
+- id: deviceValueChanged
+  tag: io-check
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageDeviceValueChangedBroadcast
+  summary: Core pushes every value change of every device (no subscription needed).
+  description: |-
+    Payload: DeviceId (int), ValueTypeId (ValueLogType int id, see 02-devices.md), Value (double). The client stores it as CurrentValues[type].
+    Booleans are 0/1, states are numeric enums. Initial values come from GenericDevice.CurrentValues in the login or reconnect response.
+    There is no "read current values" request in the app; a CLI must keep a local cache fed by the device list plus this broadcast.
+    MessageDeviceAggregatedValueChangedBroadcast (protocol 3 and up) carries aggregated statistics values with a DeviceValueAggregation descriptor.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+  confidence: observed-in-code
+- id: setDeviceValue
+  tag: io-check
+  kind: action
+  request: MessageDeviceAction
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceValueChangedBroadcast
+  summary: Set an output value or press a button (also the way to test an output).
+  description: |-
+    Fields: DeviceId, DeviceName, Action (string key), ProtoParameters (typed list: string, int, uint, long, ulong, double, float, bool, short, ushort,
+    plus enum wrappers AlarmMode and ClickKind). The app builds them from object[] by runtime type.
+    Action keys and parameters seen:
+      switch (bool on/off) for Switch devices, dim-level (double 0..1) for analog output and dimmers, blind-level (double) and blind-slope (double)
+      for blinds, slide-level (double) for slides, multi-value-switch (double state index; protocol 74 and up, older Cores use "switch"),
+      push-button (ClickKind) and push-button-held (bool), temperature (double set point), alarm (AlarmMode), variable-set-value (double),
+      cct (double), cct-and-brightness (double, double), hue-brightness (double), hue-value (int HSV packed) and hue-value-and-state (int, bool).
+      Blind service keys: blind-force-up-for-time (ushort ms, bool), blind-force-down-for-time, blind-force-up-indefinetely-start/stop,
+      blind-force-down-indefinetely-start/stop, blind-declare-current-position-as (bool, double[, double]), blind-start-hardware-calibration,
+      blind-start-calibration-up/down, blind-alarm-stop, calibrate-co2-sensor.
+    Response: GenericResponse. The app treats ResponseFlags.Handled (1) as success and shows an error when the flag is missing; ErrorCode is not used here.
+    The Core refuses a change when the safety smart rule is active or manual override is disabled for the device (ManualChangeTimeout == 0).
+    Testing a physical output: the terminal must first be configured as a device (tapHomeBusConfig), then drive that device with action "switch".
+    The app has no terminal level "pulse output N" message; whether the Core accepts actions for unconfigured terminals is untested.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.SendDeviceAction'
+  - 'TapHome.Android: TapHome.Commons.DeviceActionsHelper.GetDeviceKeyAction / GetValueToBe'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.ServiceSettingsPage2 (blind actions)'
+  confidence: observed-in-code
+- id: setDeviceValuesByType
+  tag: io-check
+  kind: action
+  request: MessageTapHomeApiSetDeviceValueRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceValueChangedBroadcast
+  summary: Set several value types of a device in one message (TapHome API tunnel variant).
+  description: |-
+    Subclass of MessageDeviceAction with Values (dictionary ValueLogType to double). Defined in the model for the cloud TapHome API; the official app
+    does not send it. Companion reads: MessageTapHomeApiGetDeviceValueRequest {DeviceId, OnlyThisType} and
+    MessageTapHomeApiGetMultipleDeviceValuesRequest {Devices[], AllDevices}, which would return all values on demand. They are service tunnel
+    messages (IServiceTunnelMessage) and may be rejected on a direct client connection.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Core.Lib.Model: MessageTapHomeApiSetDeviceValueRequest, MessageTapHomeApiGetMultipleDeviceValuesRequest'
+  confidence: inferred
+- id: getDeviceLog
+  tag: io-check
+  kind: read
+  request: MessageGetDeviceLogRequest
+  response: MessageGetDeviceLogResponse
+  broadcasts:
+  - MessageDeviceLogSubscribedBroadcast
+  summary: Read the recent value-change log of a device and optionally subscribe to new entries.
+  description: |-
+    Fields: DeviceId, ShouldSubscribe. Response: ValueChangedLogEntries[] each with TapHomeTime (seconds based custom epoch), Values (list of value type id to value),
+    ChangeOriginId (ChangeOrigin enum: 1 manual, 2 app, 3 smart rule, 4 startup, ...) and HandlingStatus (which smart rule reacted).
+    Subscription is kept alive by resending MessageDeviceLogSubscribeBroadcastRequest {DeviceId} every 5 seconds; entries then arrive as
+    MessageDeviceLogSubscribedBroadcast {DeviceId, AddedValueChangedLogEntries[]}. The subscription lapses when the client stops renewing.
+  minProtocolVersion: 37
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceLog / SendDeviceLogSubscribeBroadcastRequest'
+  - 'TapHome.Android: TapHome.Commons.BaseSubscribedBroadcast (5000 ms renew)'
+  confidence: observed-in-code
+- id: getDeviceErrors
+  tag: io-check
+  kind: read
+  request: MessageGetDeviceErrorsRequest
+  response: MessageGetDeviceErrorsResponse
+  broadcasts:
+  - MessageDeviceErrorsSubscribedBroadcast
+  summary: Read current errors, warnings and infos of a device, module, interface or Core, with optional subscription.
+  description: |-
+    Fields: DeviceId, OriginId (DeviceErrorOrigin: 0 Device, 1 Module, 2 Ccu, 3 Core), ShouldSubscribe. Response DeviceErrors[]: TapHomeTime, ErrorCodeId
+    (DeviceErrorCode), CustomText, SeverityId (1 info, 2 warning, 3 error), OriginId and area/terminal specifiers (DeviceErrorArea, DeviceErrorTerminalType:
+    UI, DI, UO, DO, BL, NTC, DMX, AO, ...). Renewal of the subscription uses MessageDeviceErrorsSubscribeBroadcastRequest {DeviceId, OriginId}
+    every 5 seconds; updates arrive as MessageDeviceErrorsSubscribedBroadcast. The aggregate state is also in the device value DeviceStatus
+    (value type 7): below 256 a simple enum, otherwise bytes 1..3 count errors, warnings and infos.
+  minProtocolVersion: 39
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceErrors / SendDeviceErrorsSubscribeBroadcastRequest'
+  - 'TapHome.Core.Lib.Model: GenericDevice (IsInError, ErrorCount ...)'
+  confidence: observed-in-code
+- id: getServiceActions
+  tag: io-check
+  kind: read
+  request: MessageGetAvailableServiceAttributesAndActionsRequest
+  response: MessageGetDeviceAvailableServiceAttributesAndActionsResponse
+  broadcasts: []
+  summary: List service actions and runtime attributes the Core offers for a device, interface or smart rule.
+  description: |-
+    Fields: ObjectIdTypeId (0 Device, 1 Ccu, 2 Smartrule), ObjectId. Response: Actions[] (ServiceActionDefinition: Name, numeric/bool/enum parameters with
+    Abbreviation, FriendlyName, ranges and enum values) and Attributes[] (ServiceRuntimeAttributeDefinition: Name, Section). The set is defined by the Core
+    per model, so the client must discover it at run time.
+  minProtocolVersion: 57
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ServiceInfoCommunicationHelper.GetServiceActions'
+  confidence: observed-in-code
+- id: getServiceAttributeValues
+  tag: io-check
+  kind: read
+  request: MessageGetServiceAttributeValuesRequest
+  response: MessageGetServiceAttributeValuesResponse
+  broadcasts: []
+  summary: Read runtime attribute values (diagnostic readings) of a device, interface or smart rule.
+  description: |-
+    Fields: ObjectIdTypeId, ObjectId, AttributeName (optional; omit to get all). Response Attributes[]: Definition (Name, Section), StringValue, Result.
+    Typical use is reading hardware readings of a Modbus or Packet Parser device without configuring anything.
+  minProtocolVersion: 57
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ServiceInfoCommunicationHelper.GetServiceRuntimeAttributes'
+  confidence: observed-in-code
+- id: executeServiceAction
+  tag: io-check
+  kind: action
+  request: MessageDeviceExecuteServiceActionRequest
+  response: MessageDeviceExecuteServiceActionResponse
+  broadcasts: []
+  summary: Run a service action discovered with getServiceActions.
+  description: |-
+    Fields: ObjectIdTypeId, ObjectId, ActionRequest {Action (the ServiceActionDefinition as received), Parameters[] of {Abbreviation, Value (double)}}.
+    Response: ActionResult {Action, Result (text, may be a translation key; the app shows it as a toast)}. Side effects depend on the action;
+    treat unknown actions as write operations.
+  minProtocolVersion: 57
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ServiceInfoCommunicationHelper.SendServiceAction'
+  confidence: observed-in-code
+- id: toggleValueHistory
+  tag: io-check
+  kind: write
+  request: MessageToggleHistoryForDeviceValueTypeRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Turn logging of a value type of a device on or off.
+  description: |-
+    Fields: DeviceId, ValueLogType, ValueAggregation (period, period type, statistics function; the instant value uses Instant/Instant/CurrentValue), HistoryShouldBeOn.
+    The resulting set is visible in GenericDevice.EnabledValueAggregations. Companion MessageToggleAggregationForDeviceValueTypeRequest has the same fields with
+    AggregationShouldBeOn. MessageDeleteAllValuesForDeviceRequest {DeviceId} (protocol 48) erases stored history (declared with MessageType Response in the
+    model, which looks like a bug; the app code path is a request).
+  minProtocolVersion: 3
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.StatisticsCommunicationHelper.ToggleHistoryForDeviceValueType'
+  confidence: observed-in-code
+- id: getValueHistory
+  tag: io-check
+  kind: read
+  request: MessageDeviceValueHistoryDataRequest
+  response: MessageDeviceValueHistoryDataResponse
+  broadcasts: []
+  summary: Read stored history of one value type.
+  description: |-
+    Fields: DeviceId, ValueLogType, ValueAggregation, DateTimeFromUtc, DateTimeToUtc. Response: Container (byte[] serialized history items), the echoed
+    parameters and LastHistoryCloudFlushOnTUtc. The container format is a binary DeviceValueHistoryItem list; decoding is not documented here.
+  minProtocolVersion: 3
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceValueHistoryData'
+  confidence: observed-in-code
+- id: interfaceSpecificConfig
+  tag: interfaces
+  kind: write
+  request: MessageModbusConfigRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Touch point for interface specific configuration messages owned by other notes.
+  description: |-
+    Each non-bus interface has its own request carrying CcuId and a ConfigJson string: MessageModbusConfigRequest, MessageKNXConfigRequest,
+    MessageJablotronConfigRequest, MessageLGACConfigRequest, MessageDaikinACConfigRequest, MessageSIPDoorbellConfigRequest, MessageTPLinkConfigRequest,
+    MessageZigBeeConfigRequest, MessageHttpApiConfigRequest (the app also reuses it for Packet Parser), MessageTapHomeProtocolConfigRequest. Plus MessageZigBeeLeaveDeviceRequest,
+    MessageTPLinkScanRequest, MessageSIPDoorbellScanRequest. These create devices under their interface, replacing addDevice for physical hardware.
+    Modbus, Packet Parser, virtual variables and automations are documented by other agents.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager (ModbusTcpConfig, KNXConfig, ZigBeeConfig
+    ...)'
+  confidence: inferred

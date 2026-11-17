@@ -1,0 +1,18 @@
+# Verification status of operations. An operation id that is missing here is not verified (x-verified: false).
+# Format, one entry per operationId:
+#
+#   <operationId>:
+#     verified: true
+#     date: YYYY-MM-DD          day of the test
+#     core: "<version>"         Core software version string, for example "2022.1.24168"
+#     protocol: <int>           Core protocol version at that time
+#     note: "..."               what was observed
+#
+# Real HTTP endpoints use their operationId too. Virtual WebSocket operations that share one request
+# class are looked up by every merged id, the first id found wins.
+getCoreStatusPage:
+  verified: true
+  date: 2026-11-17
+  core: "unknown"
+  protocol: null
+  note: "returns HTML status page with location name, uptime, local time"

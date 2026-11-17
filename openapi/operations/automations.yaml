@@ -1,0 +1,677 @@
+# Operations for smart rules (automations), schedules (week plans, date ranges) and smart rule permissions.
+# Format of every entry (all files in this directory share it):
+#   id                  unique operationId
+#   tag                 one of the spec tags
+#   kind                read | write | subscribe | action
+#   request / response  protobuf class names from work/catalog/official.json (null when none)
+#   broadcasts          broadcast classes the Core pushes as a consequence
+#   summary, description, minProtocolVersion, evidence, confidence
+#   endpoint            optional, WebSocket endpoint (default /Core)
+#   security            optional, "none" for operations that need no session
+#   bareResponse        optional, the endpoint sends the response class without a MessageBase wrapper
+# Source: static reading of the decompiled TapHome Official Android app 2025.2.32375. Nothing here is verified against a live Core
+# unless openapi/verification.yaml says so. "GenericResponse OK" means MessageGenericResponse with ErrorCode == 1.
+
+- id: getScriptLastRunValues
+  tag: scripts
+  kind: read
+  request: MessageGetScriptLastRunValuesRequest
+  response: MessageGetScriptLastRunValuesReponse
+  broadcasts: []
+  summary: Fetch the values captured during the last execution of a formula, script smart rule or device script,
+    for debugging.
+  description: |-
+    Request: LastRunId = ScriptLastRunValuesIdentifier {ObjectIdType (0 Device, 1 Ccu, 2 Smartrule), ObjectId (int; the TriggerId for smart rules, -1 for an unsaved rule), ScriptKey (string; names which script of a device/CCU, empty for smart rules)}.
+    Response class name has a typo in the app ("Reponse"): MessageGetScriptLastRunValuesReponse with LastRunId and Values = ScriptLastRunValues {Values (per-statement snapshots, list of name -> DataType maps), Result (DataType), RunTimestampUtc, RunDuration}. DataType is a tagged union (see the data type table in 04-automations.md).
+    The script engine records snapshots at Start/Progress/Finish phases and keeps only the last run in memory on the Core, so the data is empty until the rule has run at least once. Used by the "last run" button in the script editor. Works for formula (type 12), script (type 45) and evaluation rules.
+  minProtocolVersion: 61
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.LastRunValuesCommunicationHelper.GetLastRunValues'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetScriptLastRunValues'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Model.ScriptLastRunValues'
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.LastRunValuesCommunicationHelper'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.FormulaSmartRulePage.CreateScriptElement (LastRunId with ObjectIdType.Smartrule)'
+  - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Formulas.Script.CaptureLastRunValues'
+  confidence: observed-in-code
+- id: listSmartRules
+  tag: automations
+  kind: read
+  request: MessageReconnectRequest
+  response: MessageReconnectResponse
+  broadcasts: []
+  summary: Load all smart rules (triggers), per-type schema versions and error statuses as part of the session handshake.
+  description: |-
+    The app never asks for smart rules directly. It sends MessageReconnectRequest after login with SmartRules2ChangesetId set to the highest TriggerModel.ChangesetId it has cached (0 for an empty cache). The Core answers MessageReconnectResponse with:
+    - SmartRules (List<byte[]>): each element is a protobuf-encoded TriggerModel. Rules changed since the supplied changeset come back, including soft-deleted ones (TriggerModel.IsDeleted = true), which the client drops from its cache. A CLI should send 0 to get everything and ignore IsDeleted rows.
+    - TriggerVersions (Dictionary<int,int>): TriggerTypeId -> schema version the Core supports for that type. 0 or a missing key means the type cannot be created. The client copies this value into TriggerModel.Version when it creates a rule.
+    - SmartRuleErrorStatuses (Dictionary<int,int>): TriggerId -> packed TriggerErrorStatus (bits 8-15 error count, 16-23 warning count, 24-31 info count).
+    - UserPermissionsForTriggers / GroupPermissionsForTriggers / DefaultGroupPermissionsForTriggers with their changeset ids.
+    The legacy fields SmartRulesChangesetId (Guid) and Smartrules (JSON string) belong to the pre-v24 format and are ignored by this client.
+    If any TriggerModel fails to deserialize the app sets SmartRulesDeserializeError and refuses all smart rule writes (to avoid destroying data it cannot read). A CLI must apply the same rule.
+    Transport/auth fields of MessageReconnectRequest are documented elsewhere.
+  minProtocolVersion: 24
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnect'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SendReconnect'
+  confidence: observed-in-code
+- id: smartRuleChanges
+  tag: automations
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageTriggerModelsUpdatedBroadcast
+  - MessageTriggerModelsDeletedBroadcast
+  summary: Push notifications when smart rules are created, changed or deleted (by any client).
+  description: |-
+    No subscribe request is needed; the Core pushes these to every logged-in client.
+    - MessageTriggerModelsUpdatedBroadcast: TriggerModels (List<byte[]>, protobuf TriggerModel each, includes Core-computed TriggerInputs and the new Id for created rules) and SmartRulesChangesetId (int). A TriggerModel with IsDeleted = true must be treated as a delete.
+    - MessageTriggerModelsDeletedBroadcast: TriggerIds (List<int>) and SmartRulesChangesetId. The client also removes the error status for those ids.
+    Both carry the new global smart rule changeset; the client stores it and sends it back on the next reconnect.
+    This is the only place a client learns the Core-assigned Id of a rule it just created, since the write response carries no payload.
+  minProtocolVersion: 24
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast (MessageTriggerModelsUpdatedBroadcast,
+    MessageTriggerModelsDeletedBroadcast)'
+  confidence: observed-in-code
+- id: upsertSmartRules
+  tag: automations
+  kind: write
+  request: MessageUpdateTriggerModelsRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageTriggerModelsUpdatedBroadcast
+  summary: Create or update one or more smart rules (also used to enable/disable, rename, reorder priority and duplicate).
+  description: |-
+    Request: TriggerModels (List<TriggerModel>). One message is both "add" and "update"; the Id decides.
+    Create: Id = 0. The Core allocates the Id (client never does) and returns it only through MessageTriggerModelsUpdatedBroadcast.
+    Update: send the complete TriggerModel with its existing Id. The app always sends the whole object after editing a deserialized copy; there is no partial update.
+    Fields the client sets on create: TriggerType (TriggerTypeId), TriggerParameters (the concrete ...TriggerParameters subclass that matches the type and version), Name (unique-ified client side, for example "Formula", "Formula 2"), IsEnabled = true, Version = TriggerVersions[type] from the reconnect response, Priorities = empty dictionary. IsLimitingConditionEnabled/LimitingConditionType/LimitingConditionParameters are optional (not allowed for safety triggers, type id >= 10000).
+    Fields the Core computes and the client should not send meaningfully: TriggerInputs and LimitingConditionInputs (device connection index derived from the parameters; the app sets TriggerInputs = null when duplicating), ChangesetId, IsDeleted.
+    Priorities: Dictionary<deviceId, priority>, per output device; higher number wins. The app edits it when the user drags rules in a device's output list and sends the changed rules in one batch. Whether the Core fills Priorities for new rules itself is not visible in the client (see open questions).
+    Enable/disable = send the rule with IsEnabled flipped. Duplicate = clone, Id = 0, new Name, Priorities = null, TriggerInputs = null.
+    Response: MessageGenericResponse; ErrorCode 1 = saved, 16 = Core does not support this rule version (app toast "incompatible Core smart rule version"). The Core persists on receipt (it is the source of truth; the client cache is only updated from the broadcast).
+    Saved formulas and scripts are not validated by this call in the client. The Core parses them and reports problems afterwards through the trigger error operations.
+    Permissions: the user needs UserSettingsCanEdit on the rule (existing) or CreateSmartRuleCanEdit for the type (new); the Core enforces this.
+    Atomicity across the list is unknown; the app sends several rules in one message for bulk enable/disable and priority changes.
+  minProtocolVersion: 24
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.SmartRuleCommunicationHelper.UpdateSmartRules'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.SmartRulePage`1.InitSmartRule'
+  - 'TapHome.Android: TapHome.Commons.SmartRuleCommunicationHelper.DuplicateSmartRule'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.MultiSelectHelper.HandleSmartRuleEnableDisableClicked'
+  - 'TapHome.Android: CommonUI.CommonMainList.ViewModel.OutputSmartRuleElementsSectionViewModel.UpdateSmartRulesPriorities'
+  confidence: observed-in-code
+- id: deleteSmartRules
+  tag: automations
+  kind: write
+  request: MessageDeleteTriggerModelsRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageTriggerModelsDeletedBroadcast
+  summary: Delete (uninstall) smart rules by id.
+  description: |-
+    Request: TriggerIds (List<int>). The app deletes one rule at a time from the rule page and the device bottom sheet, and several at once from multi-select.
+    Only the transport success of the task is checked by the app, not ErrorCode; assume MessageGenericResponse with ErrorCode 1 on success.
+    The Core deletes softly (the model keeps IsDeleted = true with a new ChangesetId so offline clients can catch up) and broadcasts MessageTriggerModelsDeletedBroadcast.
+    Requires UninstallSmartRuleCanEdit on each rule (checked by the UI; the Core enforces it).
+    Disabling is a different operation (upsertSmartRules with IsEnabled = false). Deleting does not remove the rule's permissions rows in the client cache until the permission broadcasts arrive.
+  minProtocolVersion: 24
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.SmartRuleCommunicationHelper.DeleteSmartRules'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteSmartRules'
+  - 'TapHome.Android: TapHome.Commons.BottomSheetHelper (uninstall item)'
+  confidence: observed-in-code
+- id: updateSmartRulesLegacy
+  tag: automations
+  kind: write
+  request: MessageTriggerUpdateRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageSmartRulesUpdatedBroadcast
+  summary: Legacy (pre-v24) smart rule update with JSON strings. Not used by the current app.
+  description: 'Request: SmartRulesToUpdate (List<string>), each a JSON-serialized smart rule of the old format.
+    ClientCommunicationManager still contains the method but nothing in the UI calls it. MessageSmartRulesUpdatedBroadcast
+    (SmartRulesChangesetId Guid, Smartrules string) is its counterpart and is ignored by the current handler. Mark
+    out of scope.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateSmartRules(List<string>)'
+  confidence: inferred
+- id: deleteSmartRuleLegacy
+  tag: automations
+  kind: write
+  request: MessageTriggerDeleteRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Legacy (pre-v24) single smart rule delete by long id. Not used by the current app.
+  description: 'Request: TriggerId (long). The helper methods that the UI calls (SmartRuleCommunicationHelper.DeleteSmartRule)
+    map to the v24 list-based deleteSmartRules instead. Mark out of scope.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteSmartRule'
+  confidence: inferred
+- id: getSmartRuleErrors
+  tag: automations
+  kind: read
+  request: MessageGetTriggerErrorsRequest
+  response: MessageGetTriggerErrorsResponse
+  broadcasts:
+  - MessageTriggerErrorsSubscribedBroadcast
+  summary: Read the current errors, warnings and infos of one smart rule, optionally subscribing to changes.
+  description: |-
+    Request: TriggerId (int), ShouldSubscribe (bool). Response: TriggerErrors (List<TriggerError>).
+    TriggerError: TapHomeTime (int, Core time stamp), ErrorCodeId (TriggerErrorCode), CustomText (string; script ADDERROR/ADDWARNING/ADDINFO text), SeverityId (1 Info, 2 Warning, 3 Error), ErrorAreaId (0 None, 1 LimitingCondition), DeviceIds (List<int>), ErrorSpecifiers (set of code/int pairs, for example the device type or variable type involved).
+    TriggerErrorCode values: 1 MissingDevice, 2 MissingAction, 3 MissingVariable, 101-103 Deleted device/action/variable, 201 FormulaParseException, 202 FormulaEvaluationException, 203 LiteralArgumentException, 301-303 push button long/double/triple press not supported, 401-403 hysteresis temperature limit problems.
+    This is how a formula or script with a syntax error is reported after saving (code 201 with CustomText holding the parser message).
+    The app calls this only for existing rules (not new ones) and renews the subscription every 5 seconds with MessageTriggerErrorsSubscribeBroadcastRequest while the rule page is open.
+  minProtocolVersion: 71
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetSmartRuleErrors'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.SmartRuleErrorsManager'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.SmartRulePage`1.CreateSmartRuleErrorsSection'
+  confidence: observed-in-code
+- id: renewSmartRuleErrorsSubscription
+  tag: automations
+  kind: action
+  request: MessageTriggerErrorsSubscribeBroadcastRequest
+  response: null
+  broadcasts:
+  - MessageTriggerErrorsSubscribedBroadcast
+  summary: Keep the per-rule error subscription alive.
+  description: 'Request: TriggerId (int). Fire-and-forget (the app sends it without waiting for a reply). The shared
+    BaseSubscribedBroadcast helper resends it every 5000 ms while a page shows the rule; the Core stops pushing
+    after the renewals stop. MessageTriggerErrorsSubscribedBroadcast carries TriggerId and the full TriggerErrors
+    list (not a diff).'
+  minProtocolVersion: 71
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SendSmartRuleErrorsSubscribeBroadcastRequest'
+  - 'TapHome.Android: TapHome.Commons.BaseSubscribedBroadcast`1 (RenewMessageIntervalMs = 5000)'
+  confidence: observed-in-code
+- id: smartRuleErrorStatusChanges
+  tag: automations
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageTriggerErrorStatusUpdatedBroadcast
+  summary: Push of the packed error status of a smart rule whenever it changes.
+  description: 'No subscribe request. Broadcast fields: TriggerId (int), TriggerErrorStatus (int, packed counters:
+    bits 8-15 errors, 16-23 warnings, 24-31 infos; values below 256 mean no problems). Used for the red/yellow badges
+    in the rule list. The initial values come from MessageReconnectResponse.SmartRuleErrorStatuses.'
+  minProtocolVersion: 71
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast (MessageTriggerErrorStatusUpdatedBroadcast)'
+  - 'TapHome.Android: TapHome.Commons.Extensions.SmartRuleErrorStatusExtensions'
+  confidence: observed-in-code
+- id: getAffectingSmartRules
+  tag: automations
+  kind: read
+  request: MessageGetAffectingTriggersInfoRequest
+  response: MessageGetAffectingTriggersInfoResponse
+  broadcasts:
+  - MessageAffectingTriggersInfoSubscribedBroadcast
+  summary: Show which smart rules currently act on a device and what each one is doing.
+  description: |-
+    Request: DeviceId (int), ShouldSubscribe (bool). Response: Actions (Dictionary<int, AppAffectingTriggerInfo>; the int key is not documented in the client, it is passed straight to the UI, probably the rule's evaluation order or trigger id; verify live).
+    AppAffectingTriggerInfo: TriggerId, Status (AffectingTriggerStatus: 0 NoInfo, 1 Disabled, 2 ShouldNotEvaluate, 3 LimitedByCondition, 4 ReturnedNoAction, 5 ReturnedAction, 6 ReturnedActionAndActionApplied), ChangeOrigin, IsSafetyTrigger, ActionParameters (the ActionParametersBase the rule would apply, a DeviceActionParameters for device actions).
+    With ShouldSubscribe = true the Core pushes MessageAffectingTriggersInfoSubscribedBroadcast (same payload plus DeviceId). The app renews the subscription every 5 s with the device-level MessageSubscribeBroadcastRequest (documented with devices).
+    Read-only diagnostics for debugging why a device is or is not following a rule.
+  minProtocolVersion: 27
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceActions'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.AffectingTriggerInfoManager'
+  confidence: observed-in-code
+- id: setDeviceManualOverrideState
+  tag: automations
+  kind: action
+  request: MessageSetDeviceManualOverrideStateRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Activate or cancel the manual override of a device (suspends smart rule control until it expires).
+  description: 'Request: DeviceId (int), DeviceName (string, display only), ActivateManualOverride (bool). The app
+    sends true to put an automatic device into manual mode (smart rules stop acting on it until the manual timeout
+    elapses) and false to hand it back to automatic mode. Requires UserPermissionForDevice.ManualOverrideCanEdit.
+    The resulting device state arrives as ordinary device change broadcasts (documented with devices). The request
+    class does not override MinProtocolVersion; the protocol constant NewMaunalOverridesMinProtocolVersion is 9.'
+  minProtocolVersion: 9
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper (manual override toggle)'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SetDeviceManualOverrideState'
+  confidence: observed-in-code
+- id: setDeviceManualOverrideSettings
+  tag: automations
+  kind: write
+  request: MessageSetDeviceManualOverrideSettingsRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Set how long a device stays in manual mode before smart rules take over again.
+  description: 'Request: DeviceId (int), DeviceName (string), Value (int timeout), ValueInSeconds (bool; the app
+    always sends true, so Value is seconds; 0 means the device never leaves manual override automatically or has
+    the override disabled, verify live). Applied per device by ManualOverrideDialog, which loops over the selected
+    devices and sends one request each. Push buttons and alarms are skipped unless smart rule creation is the context.'
+  minProtocolVersion: 9
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonDialogs.ManualOverrideDialog'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SetDeviceManualOverrideSettings'
+  confidence: observed-in-code
+- id: getUserPermissionsForSmartRule
+  tag: automations
+  kind: read
+  request: MessageGetUserPermissionsForTriggerRequest
+  response: MessageGetUserPermissionsForTriggerResponse
+  broadcasts: []
+  summary: Read per-user permissions for one smart rule.
+  description: 'Request: TriggerId (long). Response: UserPermissionsForTrigger (array of {TriggerId, UserId Guid,
+    PermissionId UserPermissionForTrigger flags, LocationId}). UserPermissionForTrigger flags: 1 IsSet, 2 UserSettingsCanView,
+    4 UserSettingsCanEdit, 8 ServiceSettingsCanView, 0x10 ServiceSettingsCanEdit, 0x20 EnableDisableSmartRuleCanEdit,
+    0x40 UninstallSmartRuleCanEdit, 0x80 CreateSmartRuleCanEdit, plus permission-management flags (UserPermissionsCanView/Edit;
+    see the enum in the field catalog).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForTrigger'
+  confidence: observed-in-code
+- id: getUserPermissionsForSmartRules
+  tag: automations
+  kind: read
+  request: MessageGetUserPermissionsForTriggersRequest
+  response: MessageGetUserPermissionsForTriggersResponse
+  broadcasts: []
+  summary: Read per-user permissions for several smart rules at once.
+  description: 'Request: TriggerIds (List<long>). Response: UserPermissionsForTriggers (array of UserPermissionsForTrigger).
+    Batch form of getUserPermissionsForSmartRule.'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForTriggers'
+  confidence: observed-in-code
+- id: updateUserPermissionsForSmartRule
+  tag: automations
+  kind: write
+  request: MessageUpdateUserPermissionsForTriggerRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsForTriggerUpdatedBroadcast
+  summary: Set one user's permissions on one smart rule.
+  description: 'Request: TriggerId (long), UserId (Guid), Permissions (UserPermissionForTrigger flags). Broadcast
+    carries UserId, TriggerId, Permissions and the new ChangesetId. Response type for permission writes is not read
+    by the client beyond success; MessageGenericResponse is assumed.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateUserPermissionsForTrigger'
+  confidence: inferred
+- id: deleteUserPermissionsForSmartRule
+  tag: automations
+  kind: write
+  request: MessageDeleteUserPermissionsForTriggerRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsForTriggerDeletedBroadcast
+  summary: Remove one user's explicit permission row on a smart rule (falls back to defaults).
+  description: 'Request: TriggerId (long), UserId (Guid).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteUserPermissionsForTrigger'
+  confidence: inferred
+- id: getGroupPermissionsForSmartRule
+  tag: automations
+  kind: read
+  request: MessageGetGroupPermissionsForTriggerRequest
+  response: MessageGetGroupPermissionsForTriggerResponse
+  broadcasts: []
+  summary: Read per-user-group permissions for one smart rule.
+  description: 'Request: TriggerId (long). Response: GroupPermissionsForTrigger (array of {TriggerId, GroupId, PermissionId,
+    LocationId}).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Core.Lib.Model: MessageGetGroupPermissionsForTriggerRequest'
+  confidence: inferred
+- id: updateGroupPermissionsForSmartRule
+  tag: automations
+  kind: write
+  request: MessageUpdateGroupPermissionsForTriggerRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsForTriggerUpdatedBroadcast
+  summary: Set one user group's permissions on one smart rule.
+  description: 'Request: TriggerId (long), GroupId (int), Permissions (UserPermissionForTrigger flags).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateGroupPermissionsForTrigger'
+  confidence: inferred
+- id: deleteGroupPermissionsForSmartRule
+  tag: automations
+  kind: write
+  request: MessageDeleteGroupPermissionsForTriggerRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsForTriggerDeletedBroadcast
+  summary: Remove one user group's explicit permission row on a smart rule.
+  description: 'Request: TriggerId (long), GroupId (int).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteGroupPermissionsForTrigger'
+  confidence: inferred
+- id: bulkUpdatePermissionsForSmartRules
+  tag: automations
+  kind: write
+  request: MessageUpdatePermissionsForSmartRulesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsForTriggersUpdatedBroadcast
+  summary: Apply user and group permissions to many smart rules in one call (multi-select).
+  description: 'Request: UserPermissions (Dictionary<Guid,int>), GroupPermissions (Dictionary<int,int>), SmartRuleIds
+    (List<long>). Each listed user and group gets the given permission flags on every listed rule. Broadcast carries
+    TriggerIds, the two permission maps and per-user/per-group changeset ids.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdatePermissionsForSmartRules'
+  confidence: inferred
+- id: deletePermissionsForSmartRules
+  tag: automations
+  kind: write
+  request: MessageDeletePermissionsForTriggersRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsForTriggersDeletedBroadcast
+  summary: Remove explicit user and group permission rows from many smart rules at once.
+  description: 'Request: TriggerIds (List<long>), GroupIds (List<int>), UserIds (List<Guid>).'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeletePermissionsForSmartRules'
+  confidence: inferred
+- id: getDefaultGroupPermissionsForSmartRules
+  tag: automations
+  kind: read
+  request: MessageGetDefaultGroupPermissionsForTriggersRequest
+  response: MessageGetDefaultGroupPermissionsForTriggersResponse
+  broadcasts: []
+  summary: Read default group permissions that apply to smart rules by trigger type.
+  description: 'No request fields. Response: DefaultGroupPermissionsForTriggers (array of {TriggerTypeId, GroupId,
+    PermissionId, LocationId}). These defaults decide who may create rules of a given type (CreateSmartRuleCanEdit)
+    and what a group gets on newly created rules. The initial copy also arrives in MessageReconnectResponse.DefaultGroupPermissionsForTriggers.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Core.Lib.Model: MessageGetDefaultGroupPermissionsForTriggersRequest'
+  confidence: inferred
+- id: updateDefaultGroupPermissionsForSmartRuleType
+  tag: automations
+  kind: write
+  request: MessageUpdateDefaultGroupPermissionsForTriggersRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDefaultGroupPermissionsForTriggersUpdatedBroadcast
+  summary: Set the default permissions of one group for one smart rule type.
+  description: 'Request: TriggerTypeId (int), GroupId (int), Permissions (UserPermissionForTrigger flags).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDefaultGroupPermissionsForTriggers'
+  confidence: inferred
+- id: updateDefaultGroupPermissionsForSmartRuleTypes
+  tag: automations
+  kind: write
+  request: MessageUpdateDefaultGroupPermissionsForTriggerTypesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDefaultGroupPermissionsForTriggerTypesUpdatedBroadcast
+  summary: Set default group permissions for several smart rule types in one call.
+  description: 'Request: GroupPermissions (Dictionary<int,Dictionary<int,int>>, TriggerTypeId -> GroupId -> permission
+    flags). Broadcast carries the same map and per-group changeset ids. A related v14 message, MessageUpdateMultipleDefaultGroupPermissionsForTriggersRequest
+    (Permissions, same shape; broadcast MessageMultipleDefaultGroupPermissionsForTriggersUpdatedBroadcast with one
+    ChangesetId), is the older bulk variant and is not called by this client version.'
+  minProtocolVersion: 22
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDefaultGroupPermissionsForTriggers(Dictionary)'
+  confidence: inferred
+- id: getWeekPlans
+  tag: schedules
+  kind: read
+  request: MessageGetWeekPlansRequest
+  response: MessageGetWeekPlansResponse
+  broadcasts: []
+  summary: List all week plans (time windows used by the access control feature).
+  description: |-
+    No request fields. Response: WeekPlans (WeekPlan[]; Id, Name, Priority, ValidFromTUtc, ValidToTUtc as long ticks/time stamps).
+    Scope note: week plans are used only by the Access (door access cards) feature in this client (AccessData, AccessWeekPlansPage). They are not the schedule of the WeekSchedule or DailySchedule smart rules, which store their times inside the rule.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper.GetWeekPlans'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.AccessData'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetWeekPlans'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetWeekPlansRequest'
+  confidence: observed-in-code
+- id: addWeekPlan
+  tag: schedules
+  kind: write
+  request: MessageAddWeekPlanRequest
+  response: MessageAddWeekPlanResponse
+  broadcasts: []
+  summary: Create a week plan; the Core returns the plan with its allocated Id.
+  description: 'Request: WeekPlan (Id = 0 on create). Response (v50): WeekPlan with the Core-assigned Id. Create
+    the plan first, then add its time windows with updateWeekPlan (AddProperties). No broadcast is handled by the
+    client, so other clients learn about the plan only by re-querying.'
+  minProtocolVersion: 50
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper.AddWeekPlan'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.AccessData.AddWeekPlan'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddWeekPlan'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageAddWeekPlanRequest'
+  confidence: observed-in-code
+- id: updateWeekPlan
+  tag: schedules
+  kind: write
+  request: MessageUpdateWeekPlanRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Rename or reprioritize a week plan and add, remove or change its weekday time windows.
+  description: 'Request: WeekPlan (the plan header), AddProperties, RemoveProperties, UpdateProperties (WeekPlanProperty[];
+    each {PlanId, WeekDay (int), StartTime (int), EndTime (int)}; units of the time ints are not shown in the client,
+    likely minutes since midnight). Any of the three arrays may be null. Response is processed with the generic
+    success check (ErrorCode 1).'
+  minProtocolVersion: 50
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper.UpdateWeekPlan'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateWeekPlan'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateWeekPlanRequest'
+  confidence: observed-in-code
+- id: deleteWeekPlan
+  tag: schedules
+  kind: write
+  request: MessageDeleteWeekPlanRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Delete a week plan.
+  description: 'Request: WeekPlan (the app sends the whole object; Id is what matters). Cards that reference the
+    plan are linked through WeekPlansAndCards rows; remove those first or expect the Core to cascade (unknown).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper.DeleteWeekPlan'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteWeekPlan'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteWeekPlanRequest'
+  confidence: observed-in-code
+- id: getWeekPlanProperties
+  tag: schedules
+  kind: read
+  request: MessageGetWeekPlanProperties
+  response: MessageGetWeekPlanPropertiesResponse
+  broadcasts: []
+  summary: Read the weekday time windows of the given week plans.
+  description: 'Request class has no "Request" suffix: MessageGetWeekPlanProperties with WeekPlanId (int[]). Response:
+    Properties (WeekPlanProperty[]).'
+  minProtocolVersion: 50
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper.GetWeekPlanProperties'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetWeekPlanProperties'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetWeekPlanProperties'
+  confidence: observed-in-code
+- id: getWeekPlansAndCards
+  tag: schedules
+  kind: read
+  request: MessageGetWeekPlansAndCardsRequest
+  response: MessageGetWeekPlansAndCardsResponse
+  broadcasts: []
+  summary: Read which week plans are assigned to which access card on which access device.
+  description: 'Request: DeviceId, CardId, PlanId (ints; the app passes -1 for "any" on fields it does not filter
+    on). Response: WeekPlansAndCards (array of {DeviceId, PlanId, CardId}).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper.GetWeekPlansAndCards'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetWeekPlansAndCards'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetWeekPlansAndCardsRequest'
+  confidence: observed-in-code
+- id: updateWeekPlanAndCard
+  tag: schedules
+  kind: write
+  request: MessageUpdateWeekPlanAndCardRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Assign and unassign week plans for access cards in one call.
+  description: 'Request: AddWeekPlanAndCard and RemoveWeekPlanAndCard (WeekPlansAndCards[] each). The older single-item
+    messages MessageAddWeekPlanAndCardRequest and MessageDeleteWeekPlanAndCardRequest (WeekPlanAndCard field) exist
+    but are not called by this client version.'
+  minProtocolVersion: 50
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper.UpdateWeekPlansAndCards'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateWeekPlanAndCard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateWeekPlanAndCardRequest'
+  confidence: observed-in-code
+- id: getWeekPlanDateRanges
+  tag: schedules
+  kind: read
+  request: MessageGetWeekPlanDateRangeRequest
+  response: MessageGetWeekPlanDateRangeResponse
+  broadcasts: []
+  summary: Read the date ranges that include or exclude each week plan.
+  description: 'Request: WeekPlanIds (int[]). Response: WeekPlanDateRanges (array of {WeekPlanId, DateRangeId, Properties
+    bit set: 1 Include, 2 Exclude}).'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper.GetWeekPlanDateRanges'
+  confidence: observed-in-code
+- id: updateWeekPlanDateRanges
+  tag: schedules
+  kind: write
+  request: MessageUpdateWeekPlanDateRangeRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Link or unlink week plans and date ranges (include or exclude mode).
+  description: 'Request: AddWeekPlanDateRanges and RemoveWeekPlanDateRanges (WeekPlanDateRange[] each).'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.AccessCommunicationHelper (UpdateWeekPlanDateRanges call)'
+  confidence: observed-in-code
+- id: getDateRanges
+  tag: schedules
+  kind: read
+  request: MessageGetDateRangesRequest
+  response: MessageGetDateRangesResponse
+  broadcasts: []
+  summary: List date ranges (named sets of calendar intervals such as holidays).
+  description: 'Request: DateRangeIds (int[]; the app sends it without ids to get all). Response: DateRanges (DateRange[];
+    {Id, Name, Reference (int?, link to a built-in/system range), Intervals: DateRangeInterval[] each {Id, DateRangeId,
+    Name, FromTUtc, ToTUtc (long), Properties bit set: 1 RepeatEveryYear}}). Used by week plans and by service attribute
+    settings (ServiceSettingsManager loads them).'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DateRangesCommunicationHelper.GetDateRanges'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.DateRanges'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDateRanges'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDateRangesRequest'
+  confidence: observed-in-code
+- id: addDateRange
+  tag: schedules
+  kind: write
+  request: MessageAddDateRangeRequest
+  response: MessageAddDateRangeResponse
+  broadcasts: []
+  summary: Create a date range; the Core returns it with its allocated Id.
+  description: 'Request: DateRange (Id = 0; Name; Intervals normally empty and added with addDateRangeInterval).
+    Response: DateRange with the Core-assigned Id.'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DateRangesCommunicationHelper.AddDateRange'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddDateRange'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageAddDateRangeRequest'
+  confidence: observed-in-code
+- id: addDateRangeInterval
+  tag: schedules
+  kind: write
+  request: MessageAddDateRangeIntervalRequest
+  response: MessageAddDateRangeIntervalResponse
+  broadcasts: []
+  summary: Add calendar intervals to a date range; the Core returns them with allocated Ids.
+  description: 'Request: Intervals (DateRangeInterval[]; Id = 0, DateRangeId of the parent, Name, FromTUtc, ToTUtc,
+    Properties). Response: Intervals with Ids.'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DateRangesCommunicationHelper.AddDateRangeInterval'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddDateRangeInterval'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageAddDateRangeIntervalRequest'
+  confidence: observed-in-code
+- id: deviceTimerChanges
+  tag: schedules
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageDeviceTimersUpdatedBroadcast
+  summary: Push of the running timers (delayed, fade, PWM, duration) on a device.
+  description: 'Broadcast fields: DeviceId (int) and DeviceTimerInformation (List<DeviceBase.DeviceTimerInfo>: TimingParameters
+    (DeviceTimerParametersBase subclass: duration, fade, PWM), Origin (ChangeOrigin), SmartRuleId, UserId, AffectedValueLogType).
+    Timers are runtime state created by actions that carry TimingParameters (smart rule actions or device actions),
+    not configuration objects, so there is nothing to create or delete here. The client applies the list to its
+    cached device. Out of scope for configuration; useful only to show why a device value will change later.'
+  minProtocolVersion: 24
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast (MessageDeviceTimersUpdatedBroadcast)'
+  confidence: observed-in-code
+- id: updateCoreTime
+  tag: core
+  kind: action
+  request: MessageUpdateCoreTimeRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Set the Core clock to the client's current UTC time.
+  description: 'Request: UXTimeStamp (long, Unix seconds or milliseconds, the app uses its ToUnixTime helper on
+    DateTime.UtcNow; verify the unit live). All time-based smart rules (schedules, sun events) depend on the Core
+    clock and location. Do not call without the owner''s approval.'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateCoreTime'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateCoreTimeRequest'
+  confidence: observed-in-code
+- id: refreshTapHomeApiToken
+  tag: taphome-api
+  kind: write
+  request: MessageRefreshTapHomeApiTokenRequest
+  response: MessageRefreshTapHomeApiTokenResponse
+  broadcasts: []
+  summary: Generate a new TapHome API token for the Core (invalidates the old one).
+  description: 'No request fields. Response: Token (Guid). This is the only integration message the Android app
+    sends; the app shows the token on the "expose devices" page. Treat the token as a secret and never log it. Rotating
+    it breaks every external caller that uses the old token.'
+  minProtocolVersion: 34
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonPages.TapHomeApiExposeDevicesPage'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.RefreshTapHomeApiToken'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageRefreshTapHomeApiTokenRequest'
+  confidence: observed-in-code
+- id: tapHomeApiDiscovery
+  tag: taphome-api
+  kind: read
+  request: MessageTapHomeApiDiscoveryRequest
+  response: MessageTapHomeApiResponse
+  broadcasts: []
+  summary: TapHome public API call that lists exposed devices (sent by the TapHome cloud on behalf of API clients,
+    not by the app).
+  description: 'Part of the TapHome Cloud API / IFTTT-style integration surface. The cloud tunnels REST calls from
+    third parties to the Core as these messages (some implement IServiceTunnelMessage). Siblings: MessageTapHomeApiLocationInfoRequest
+    (location name and info), MessageTapHomeApiGetDeviceValueRequest (DeviceId, OnlyThisType), MessageTapHomeApiGetMultipleDeviceValuesRequest
+    (Devices list, AllDevices flag), MessageTapHomeApiSetDeviceValueRequest (a MessageDeviceAction with Values:
+    Dictionary<ValueLogType,double>). All answer with MessageTapHomeApiResponse (TapHomeApiResponse payload). These
+    are day-to-day control and discovery; out of scope for the configuration CLI. Which devices are exposed is configured
+    per device in the app (TapHomeApiExposeDevicesPage) through ordinary device property updates.'
+  minProtocolVersion: 34
+  evidence:
+  - 'TapHome.Core.Lib.Model: MessageTapHomeApiDiscoveryRequest, MessageTapHomeApiResponse'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiDiscoveryRequest'
+  confidence: inferred
