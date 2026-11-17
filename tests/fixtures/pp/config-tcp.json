@@ -1,0 +1,3 @@
+{"Modules": [{"Name": "Demo tcp", "Model": "PacketParserModuleTcp",
+  "DeviceProperties": {"IpAddress": "192.0.2.30", "Port": "1024"},
+  "Devices": [{"Name": "Demo tcp value", "Model": "PacketParserVariable", "DeviceProperties": {"ReadStateScriptPacketParser": "2"}}]}]}

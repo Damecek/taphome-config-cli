@@ -1,0 +1,12 @@
+{
+  "CcuId": 2,
+  "ConfigJson": {
+    "ProtocolVersion": 66,
+    "Modules": [
+      {"Name": "Demo wrapped", "Model": "PacketParserModuleHttp", "Id": -5,
+       "DeviceProperties": {"IpAddress": "192.0.2.20", "Port": "80"},
+       "Devices": [{"Name": "Demo wrapped value", "Model": "PacketParserVariable",
+                    "DeviceProperties": {"ReadStateScriptPacketParser": "1"}}]}
+    ]
+  }
+}
