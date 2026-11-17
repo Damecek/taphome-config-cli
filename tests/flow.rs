@@ -292,3 +292,40 @@ fn duplicate_names_are_ambiguous_and_the_id_still_works() {
     assert_eq!(err.details["ids"], json!([10, 50]));
     assert_eq!(snapshot.find_device("50").unwrap()["ID"], 50);
 }
+
+#[test]
+fn request_refuses_write_classes() {
+    let core = FakeCore::start();
+    let ctx = core.ctx();
+    let err = block(async {
+        let session = open_session(&ctx).await.unwrap();
+        let err = taphome_cli::core::request(&ctx, &session, CLASS, &json!({}), None)
+            .await
+            .unwrap_err();
+        session.close().await;
+        err
+    });
+    assert_eq!(err.code, "internal");
+    assert!(core.writes().is_empty());
+}
+
+#[test]
+fn a_write_that_times_out_is_reported_as_unknown() {
+    let core = FakeCore::start();
+    let mut ctx = taphome_cli::core::Ctx::new(
+        core.env(),
+        taphome_cli::core::Global {
+            timeout: Some(1.0),
+            ..Default::default()
+        },
+        b"",
+    )
+    .unwrap();
+    ctx.settle = std::time::Duration::from_millis(50);
+    // Log in first so only the write itself is silent.
+    block(async { open_session(&ctx).await.unwrap().close().await });
+    core.silent_next_request();
+    let err = rename(&ctx, flags(false, false), true, "TEST silent").unwrap_err();
+    assert_eq!((err.code.as_str(), err.exit_code), ("timeout", 4));
+    assert_eq!(err.details["write_sent"], "unknown");
+}

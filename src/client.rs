@@ -195,7 +195,6 @@ pub async fn login(
                 .map_err(|e| CliError::protocol(format!("undecodable login frame: {e}")))?;
             for m in unwrap_container(msg)? {
                 if m["$type"] == "MessageLoginResponse" {
-                    let _ = ws.close(None).await;
                     return Ok(m);
                 }
                 others += 1;
@@ -314,11 +313,15 @@ async fn flush_acks(shared: &Shared, writer: &Writer) {
         &json!({"ReceivedMessagesStamps": stamps}),
         0,
     ) {
-        let _ = writer
-            .lock()
-            .await
-            .send(Message::Binary(frame.into()))
-            .await;
+        // A stalled socket must not hang the command: acknowledgements are best effort.
+        let send = async {
+            writer
+                .lock()
+                .await
+                .send(Message::Binary(frame.into()))
+                .await
+        };
+        let _ = timeout(Duration::from_secs(2), send).await;
     }
 }
 
@@ -411,16 +414,24 @@ impl Session {
             st.pending.insert(rid, tx);
             (rid, frame, rx)
         };
-        if let Err(e) = self
-            .writer
-            .lock()
-            .await
-            .send(Message::Binary(frame.into()))
-            .await
-        {
-            let error = connection_failed(format!("cannot send the request: {e}"));
-            close_with(&self.shared, error.clone());
-            return Err(error);
+        let send = async {
+            self.writer
+                .lock()
+                .await
+                .send(Message::Binary(frame.into()))
+                .await
+        };
+        match timeout(limit, send).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                let error = connection_failed(format!("cannot send the request: {e}"));
+                close_with(&self.shared, error.clone());
+                return Err(error);
+            }
+            Err(_) => {
+                lock(&self.shared).pending.remove(&rid);
+                return Err(timed_out(&format!("sending the {class}")));
+            }
         }
         match timeout(limit, rx).await {
             Ok(Ok(result)) => result,

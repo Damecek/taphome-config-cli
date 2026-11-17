@@ -1,7 +1,8 @@
 //! `taphome raw call | ops`: send any request class, behind the safety gates.
 use crate::catalog;
 use crate::core::{
-    count_delta, frame_hex, open_session, request, run_write, Ctx, WriteFlags, WritePlan, WriteSpec,
+    count_delta, frame_hex, open_session, request, run_write, Check, Ctx, WriteFlags, WritePlan,
+    WriteSpec,
 };
 use crate::errors::CliError;
 use clap::{Args, Subcommand};
@@ -99,13 +100,16 @@ async fn call(ctx: &Ctx, args: CallArgs) -> Result<Value, CliError> {
     let verified = op.is_some_and(|o| o.verified);
 
     if args.dry_run {
+        // The frame must not leak what the output hides, so it is built from the redacted fields.
+        let shown = ctx.redactor().redact(&fields);
         return Ok(
             json!({"dry_run": true, "operation": op.and_then(|o| o.ids.first()), "verified": verified,
                          "kind": op.map(|o| o.kind.as_str()),
                          "message": {"class": class, "fields": fields}, "diff": null,
-                         "frame_hex": frame_hex(class, &fields, 2)?}),
+                         "frame_hex": frame_hex(class, &shown, 2)?, "frame_redacted": shown != fields}),
         );
     }
+
     if is_write && op.is_some() && !args.allow_write {
         return Err(CliError::new(
             "write_not_allowed",
@@ -127,7 +131,12 @@ async fn call(ctx: &Ctx, args: CallArgs) -> Result<Value, CliError> {
         )
         .with_details(json!({"class": class})));
     }
-    let wait = Duration::from_secs_f64(args.wait_broadcasts.max(0.0));
+    let seconds = if args.wait_broadcasts.is_finite() {
+        args.wait_broadcasts.clamp(0.0, 3600.0)
+    } else {
+        0.0
+    };
+    let wait = Duration::from_secs_f64(seconds);
     if is_write {
         return raw_write(ctx, class, fields, wait, args.allow_unverified).await;
     }
@@ -164,7 +173,13 @@ async fn raw_write(
             dry_run: false,
             allow_unverified,
         },
-        move |_snapshot| Ok(WritePlan::new(fields, vec![], |_after, _response| vec![])),
+        move |_snapshot| {
+            // No state expectation exists for a raw call: `delta` shows what changed.
+            Ok(WritePlan::new(fields, vec![], |_after, _response| {
+                vec![Check::new("the Core answered without error", true)
+                    .detail("a raw call has no expected state, compare delta")]
+            }))
+        },
     );
     spec.settle = Some(wait.max(ctx.settle));
     let mut doc = run_write(ctx, spec).await?;

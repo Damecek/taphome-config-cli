@@ -237,6 +237,11 @@ pub async fn login(ctx: &Ctx) -> Result<LoginOutcome> {
         .as_str()
         .unwrap_or_default()
         .to_string();
+    if session_id.is_empty() {
+        return Err(CliError::protocol(
+            "the Core accepted the login but sent no session id",
+        ));
+    }
     ctx.add_secret(&session_id);
     let session = StoredSession {
         host,
@@ -277,48 +282,50 @@ pub async fn reconnect(ctx: &Ctx, stored: &StoredSession) -> Result<Reconnect> {
             .as_str()
             .filter(|h| !h.is_empty())
             .map(str::to_string);
-        match result {
-            1 => {
-                if offered.is_some() && offered != stored.db_hash {
-                    config::save_session(
-                        &ctx.env,
-                        &StoredSession {
-                            db_hash: offered,
-                            ..stored.clone()
-                        },
-                    )?;
+        if result == 1 {
+            if offered.is_some() && offered != stored.db_hash {
+                // The DbHash cache only saves a round trip: a failed write must not fail the command.
+                let cached = StoredSession {
+                    db_hash: offered,
+                    ..stored.clone()
+                };
+                if let Err(e) = config::save_session(&ctx.env, &cached) {
+                    ctx.warn(format!("cannot store the DbHash: {}", e.message));
                 }
-                return Ok(Reconnect::Ready(session));
             }
+            return Ok(Reconnect::Ready(session));
+        }
+        let failure = match result {
             4 if attempt == 0 && offered.is_some() => {
-                session.close().await;
                 db_hash = offered;
+                None
             }
-            2 | 3 | 8 => {
-                session.close().await;
-                return Ok(Reconnect::WrongSession);
-            }
-            7 => {
-                return Err(CliError::new(
-                    "core_not_ready",
-                    "the Core is still starting, try again in about 10 seconds",
-                ))
-            }
-            5 => {
-                return Err(
-                    CliError::new("unauthorized", "the user has no remote access")
-                        .with_exit(crate::errors::EXIT_AUTH),
-                )
-            }
-            6 => return Err(CliError::protocol("the Core says this client is too old")),
-            other => {
-                return Err(CliError::protocol(format!(
-                    "unexpected ReconnectResult {other}"
-                )))
-            }
+            4 => Some(CliError::protocol("the Core keeps rejecting the DbHash")),
+            2 | 3 | 8 => return close_then(session, Ok(Reconnect::WrongSession)).await,
+            7 => Some(CliError::new(
+                "core_not_ready",
+                "the Core is still starting, try again in about 10 seconds",
+            )),
+            5 => Some(
+                CliError::new("unauthorized", "the user has no remote access")
+                    .with_exit(crate::errors::EXIT_AUTH),
+            ),
+            6 => Some(CliError::protocol("the Core says this client is too old")),
+            other => Some(CliError::protocol(format!(
+                "unexpected ReconnectResult {other}"
+            ))),
+        };
+        session.close().await;
+        if let Some(e) = failure {
+            return Err(e);
         }
     }
     Err(CliError::protocol("the Core keeps rejecting the DbHash"))
+}
+
+async fn close_then<T>(session: Session, value: T) -> T {
+    session.close().await;
+    value
 }
 
 /// A stored session counts only for the configured host and user.
@@ -565,9 +572,30 @@ fn lookup<'a, T: 'a>(
 
 // ---------------------------------------------------------------- requests
 
-/// Sends one request and returns the decoded response. A `MessageGenericResponse` failure becomes a
-/// [`CliError`]. When `expect` is given, any other response class is a `protocol_error`.
+/// Write and action classes, and classes the registry does not know, may change the Core.
+pub fn is_write_class(class: &str) -> bool {
+    catalog::operation(class).is_none_or(|op| matches!(op.kind.as_str(), "write" | "action"))
+}
+
+/// Sends one read or subscribe request and returns the decoded response. A `MessageGenericResponse`
+/// failure becomes a [`CliError`]. When `expect` is given, any other response class is a
+/// `protocol_error`. Write classes are refused here: they go through [`run_write`].
 pub async fn request(
+    ctx: &Ctx,
+    session: &Session,
+    class: &str,
+    fields: &Value,
+    expect: Option<&str>,
+) -> Result<Value> {
+    if is_write_class(class) {
+        return Err(CliError::internal(format!(
+            "{class} can change the Core: send it with run_write"
+        )));
+    }
+    send_request(ctx, session, class, fields, expect).await
+}
+
+async fn send_request(
     ctx: &Ctx,
     session: &Session,
     class: &str,
@@ -748,10 +776,18 @@ where
         )
         .with_details(json!({"operation": spec.operation_id, "class": spec.class})));
     }
-    let response = match request(ctx, &session, spec.class, &plan.fields, spec.expect).await {
+    let response = match send_request(ctx, &session, spec.class, &plan.fields, spec.expect).await {
         Ok(r) => r,
-        Err(e) => {
+        Err(mut e) => {
             session.close().await;
+            if matches!(
+                e.code.as_str(),
+                "timeout" | "connection_failed" | "protocol_error"
+            ) {
+                // The write may have reached the Core: tell the caller to check before retrying.
+                e.details =
+                    Box::new(json!({"write_sent": "unknown", "operation": spec.operation_id}));
+            }
             return Err(e);
         }
     };
@@ -760,10 +796,17 @@ where
     session.close().await;
 
     // A new session shows what the Core really holds, not what our own cache believes.
-    let fresh = open_session(ctx).await?;
+    // The write was sent and answered: a failure from here on must not look like "nothing happened".
+    let sent = |mut e: CliError| {
+        e.details = Box::new(
+            json!({"write_sent": true, "operation": spec.operation_id, "response": response, "broadcasts": broadcasts}),
+        );
+        e
+    };
+    let fresh = open_session(ctx).await.map_err(sent)?;
     let after = Snapshot::from_session(&fresh);
     fresh.close().await;
-    let after = after?;
+    let after = after.map_err(sent)?;
     let checks = (plan.verify)(&after, &response);
     let ok = checks.iter().all(|c| c.ok);
     let doc = json!({"operation": spec.operation_id, "response": response, "broadcasts": broadcasts,

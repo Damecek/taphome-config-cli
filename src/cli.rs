@@ -32,8 +32,8 @@ struct Cli {
 
 fn parse_timeout(text: &str) -> Result<f64, String> {
     match text.parse::<f64>() {
-        Ok(s) if s.is_finite() && s > 0.0 => Ok(s),
-        _ => Err("must be a positive number of seconds".to_string()),
+        Ok(s) if s.is_finite() && s > 0.0 && s <= 86_400.0 => Ok(s),
+        _ => Err("must be between 0 and 86400 seconds".to_string()),
     }
 }
 

@@ -132,8 +132,13 @@ fn set_mode(_path: &Path, _mode: u32) -> std::io::Result<()> {
 
 /// Creates the config directory (mode 700 on unix).
 pub fn ensure_config_dir(env: &Env) -> Result<()> {
+    // Only a directory this tool creates gets mode 700: TAPHOME_CONFIG_DIR may name a shared one.
+    let existed = env.config_dir.is_dir();
     fs::create_dir_all(&env.config_dir)
         .map_err(|e| io_error("cannot create the config directory", e))?;
+    if existed {
+        return Ok(());
+    }
     set_mode(&env.config_dir, 0o700)
         .map_err(|e| io_error("cannot restrict the config directory", e))
 }
