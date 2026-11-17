@@ -236,12 +236,11 @@ The registry marks request classes. Commands can also mark a variant of a verifi
 | `device add-virtual` | Any model except `VirtualVariableGeneral` with interface `Variable`, or any use of `--prop`. | Only a plain virtual variable was created on a real Core. |
 | `pp import` | A module whose model is not `PacketParserModuleHttp`. | Only that module model was imported. |
 | `pp import` | Devices without a new module (a top-level device with `HardwareParentId` of an existing module). | Never imported on a real Core. |
-| `rule apply` | An update (`Id` of a live rule). | Only a create was tested. |
+| `rule apply` | An update (`Id` of a live rule) whose `TriggerTypeId` is not 12. | Only the update of a formula rule was tested. |
 | `rule apply` | A create of a type other than 12 (FormulaTrigger), or with `IsEnabled` true. | Only a disabled formula rule was created. |
-| `rule enable`, `rule disable` | Always. | Only a create was tested. |
 | `raw call` | Any class with `verified: false` in `raw ops`, and classes missing from the registry. | See `taphome raw ops --verified false`. |
 
-Deleting a rule, renaming a device, changing properties, replacing a script and creating a plain virtual variable are verified variants. The authoritative record is [`docs/verification.md`](verification.md).
+Deleting a rule, enabling and disabling a rule of any type, updating a formula rule, renaming a device, changing properties, replacing a script, importing a Packet Parser template with one HTTP module and creating a plain virtual variable are verified variants. `rule enable` and `rule disable` re-send the Core's own bytes with one flag changed and refuse with `roundtrip_mismatch` when the round trip is not byte-exact, so they need no switch for any rule type. The authoritative record is [`docs/verification.md`](verification.md).
 
 ## Packet Parser import formats
 
@@ -357,4 +356,24 @@ At run time, `TAPHOME_PASSWORD_SALT` overrides the built-in value. With neither,
 
 ## Verified against a real Core
 
-See [`docs/verification.md`](verification.md). This page does not state what has been tested.
+Core software 2025.2.32396, protocol 89, 2026-11-17. Details, observations and the list of untested variants are in [`docs/verification.md`](verification.md).
+
+| Command | Status | Needs `--allow-unverified` |
+|---|---|---|
+| `auth login`, `auth status`, `sync` | Verified on a real Core | No |
+| `device list`, `device get` | Verified on a real Core | No |
+| `device add-virtual` | Verified for these variants only | Any model except `VirtualVariableGeneral`, or `--prop` |
+| `device rename`, `device set-props` | Verified on a real Core (key `Name`) | No |
+| `device delete` | Verified for these variants only | `--force` |
+| `io values`, `io errors`, `io log`, `io watch` | Verified on a real Core (error lists seen empty only) | No |
+| `pp inspect` | Offline, nothing to verify | No |
+| `pp import` | Verified for these variants only (template with one HTTP module) | Other module models, devices without a new module |
+| `pp script get`, `pp script last-run`, `pp script set` | Verified on a real Core | No |
+| `rule list`, `rule get`, `rule errors` | Verified on a real Core | No |
+| `rule apply` | Verified for these variants only (create of a disabled formula rule, update of a formula rule) | Create of another type or with `IsEnabled` true, update of a rule that is not type 12 |
+| `rule enable`, `rule disable` | Verified on a real Core | No |
+| `rule delete` | Verified on a real Core | No |
+| `raw ops`, `raw call` (reads) | Verified on a real Core | Classes with `verified: false` or missing from the registry |
+| `raw call` (writes) | Implemented, not verified | Yes, together with `--allow-write` |
+
+Release binaries for Linux and Windows, the release workflow and `install.sh` were not run, because no release exists yet.

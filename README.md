@@ -6,7 +6,7 @@ The goal is configuration and administration (devices, virtual devices, Packet P
 
 ## Status
 
-Step 1 is drafted and step 2 exists. Step 2 is `taphome`, a Rust command line tool in `src/` that reads and changes the configuration of a Core. Install and usage are in [Step 2](#step-2-cli-for-agents), the full reference is [`docs/cli.md`](docs/cli.md), and agents follow [`.agents/skills/taphome-cli/SKILL.md`](.agents/skills/taphome-cli/SKILL.md).
+Step 1 is drafted and step 2 exists. Step 2 is `taphome`, a Rust command line tool in `src/` that reads and changes the configuration of a Core. It reads devices, values, logs, errors, Packet Parser scripts and smart rules, and writes virtual devices, Packet Parser imports and scripts, and smart rules. Every write is checked by a fresh sync afterwards. All reads and the main write paths ran against a real Core on 2026-11-17, and variants that did not are gated behind `--allow-unverified`. The lists of what is verified and what is not are in [`docs/verification.md`](docs/verification.md). Install and usage are in [Step 2](#step-2-cli-for-agents), the full reference is [`docs/cli.md`](docs/cli.md), and agents follow [`.agents/skills/taphome-cli/SKILL.md`](.agents/skills/taphome-cli/SKILL.md).
 
 The result of the reverse engineering is that TapHome has no REST API for configuration. The Android app talks to the TapHome Core over a WebSocket on the LAN (`ws://<core>/Core`, port 80) and exchanges binary protobuf messages. The Core stores the whole configuration. The cloud only holds accounts and a location list, and relays the same WebSocket when the phone is away from home.
 

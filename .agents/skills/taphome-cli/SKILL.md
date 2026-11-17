@@ -108,7 +108,7 @@ taphome rule apply rule.json --dry-run
 taphome rule apply rule.json
 ```
 
-`Id` stays in the file, so the command updates that rule. An update is an unverified variant, so it needs the owner's agreement before `--allow-unverified`. Keys you remove from the file keep their stored values. On an update the CLI ignores `TriggerInputs`, `ChangesetId` and `IsDeleted` from the file and warns when they differ from the stored ones. A changed `Priorities` is applied and shown in the diff. `rule get` hides secrets such as a `Passcode`. A file that still holds `<redacted>` is refused with `invalid_input`, so read the rule again with `--show-secrets` if you must apply it. `taphome rule enable` and `rule disable` are unverified too.
+`Id` stays in the file, so the command updates that rule. The update of a formula rule (type 12) is verified. The update of any other rule type is an unverified variant, so it needs the owner's agreement before `--allow-unverified`. Keys you remove from the file keep their stored values. On an update the CLI ignores `TriggerInputs`, `ChangesetId` and `IsDeleted` from the file and warns when they differ from the stored ones. A changed `Priorities` is applied and shown in the diff. `rule get` hides secrets such as a `Passcode`. A file that still holds `<redacted>` is refused with `invalid_input`, so read the rule again with `--show-secrets` if you must apply it. `taphome rule enable` and `rule disable` are verified for every rule type and need no switch.
 
 ### Rename or reconfigure a device
 

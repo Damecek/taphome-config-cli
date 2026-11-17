@@ -2,8 +2,9 @@
 //!
 //! Every write sends whole models in `MessageUpdateTriggerModelsRequest` (`TriggerModels` holds
 //! `TriggerModel` objects, not serialized bytes) or ids in `MessageDeleteTriggerModelsRequest`.
-//! Only the create of a disabled formula rule (type 12) ran against a real Core. Update, enable,
-//! disable and every other create are gated behind `--allow-unverified`.
+//! Verified on a real Core: create of a disabled formula rule (type 12), update of a formula rule,
+//! enable and disable (the Core's own bytes with one flag changed, refused unless the round trip
+//! is byte-exact). Updates of other types and every other create need `--allow-unverified`.
 use crate::catalog;
 use crate::codec;
 use crate::core::{
@@ -36,9 +37,9 @@ pub enum Cmd {
     },
     /// Create (Id 0 or absent) or update (Id of a live rule) a rule from a JSON file
     Apply(ApplyArgs),
-    /// Enable a rule (unverified variant)
+    /// Enable a rule
     Enable(ToggleArgs),
-    /// Disable a rule (unverified variant)
+    /// Disable a rule
     Disable(ToggleArgs),
     /// Delete a rule (the Core keeps a tombstone)
     Delete(ToggleArgs),
@@ -411,10 +412,12 @@ async fn apply(ctx: &Ctx, args: ApplyArgs) -> Result<Value, CliError> {
         encode_check(&Value::Object(model.clone()))?;
     }
     if id != 0 {
+        let model_type = model["TriggerTypeId"].as_i64();
         let mut spec = WriteSpec::new("upsertSmartRules", UPSERT, args.flags, move |s| {
             plan_update(ctx, s, id, model)
         });
-        spec.variant_verified = false;
+        // plan_update refuses a TriggerTypeId that differs from the stored rule, so the file's type is the stored one.
+        spec.variant_verified = model_type == Some(FORMULA_TYPE);
         return finish(run_write(ctx, spec).await, id);
     }
     let verified_variant = model["TriggerTypeId"].as_i64() == Some(FORMULA_TYPE)
@@ -611,7 +614,7 @@ async fn set_enabled(ctx: &Ctx, args: ToggleArgs, target: bool) -> Result<Value,
     let reference = args.rule;
     let id_cell = Rc::new(Cell::new(0));
     let slot = id_cell.clone();
-    let mut spec = WriteSpec::new("upsertSmartRules", UPSERT, args.flags, move |snapshot| {
+    let spec = WriteSpec::new("upsertSmartRules", UPSERT, args.flags, move |snapshot| {
         let rule = snapshot.find_rule(&reference)?;
         slot.set(rule.id);
         if rule.enabled == target {
@@ -662,7 +665,6 @@ async fn set_enabled(ctx: &Ctx, args: ToggleArgs, target: bool) -> Result<Value,
             },
         ))
     });
-    spec.variant_verified = false;
     let result = run_write(ctx, spec).await;
     finish(result, id_cell.get())
 }

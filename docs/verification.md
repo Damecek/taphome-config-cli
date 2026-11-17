@@ -47,16 +47,60 @@ Counts in the generated spec (`openapi/taphome-core.yaml`, 2026-11-17): 54 of 27
 | Add virtual variable | `MessageAddDeviceRequest` with `DeviceName`, `Icon` 0, `Interface` "Variable", `Model` "VirtualVariableGeneral" and `DeviceTypeId` 0 creates a device. The Core picks the id, the virtual CCU, a `VIRT-<guid>` serial and the default properties. | `configuration-model.md` |
 | Rename and edit | `updateMultipleDevicesProperties` with `{"Name": "<new name>"}` renames a device. `{"ReadStateScriptPacketParser": "8"}` replaced a Packet Parser script, which ran at once with no restart. | `configuration-model.md` |
 | Smart rule create | `upsertSmartRules` with `Id` 0 and a formula rule (type 12, version 13, disabled) is accepted. The Core fills `TriggerInputs` and `Priorities` and keeps `IsEnabled`. It reuses the id of a soft-deleted rule, so new ids are not max plus 1. | `configuration-model.md` |
+| Smart rule update | `upsertSmartRules` with the whole stored model re-sent updates an existing rule. Enabling and disabling (only `IsEnabled` changed) and a changed `EvaluationFormula` of a formula rule were accepted: `ErrorCode` 1, `MessageTriggerModelsUpdatedBroadcast`, `ChangesetId` raised, the rest of the model unchanged, no rule errors. | `configuration-model.md` |
+| Smart rule codec | The CLI decoded 87 live rules of 12 trigger types (5, 11, 12, 13, 19, 26, 27, 32, 37, 40, 41, 45). Re-encoding each decoded rule reproduced the Core's bytes, so `rule get` followed by `rule apply --dry-run` reported no change for all of them. | `configuration-model.md` |
 | Smart rule delete | `deleteSmartRules` leaves a tombstone: `IsDeleted` true, parameters removed, name, type and version kept, changeset raised. | `configuration-model.md` |
 | Device delete | `deleteDevice` with `ForceDelete` false works for a variable, a Packet Parser device and (after its child) a Packet Parser module. Freed device ids are reused. | `configuration-model.md` |
-| Packet Parser import | `importPacketParserTemplate` (message `MessageHttpApiConfigRequest`) accepts a hand-built `ConfigJson` with one HTTP module and one variable device. The Core allocates both ids, sets the child's `HardwareParentId`, fills defaults and runs the state script at once. | `configuration-model.md` |
-| Script debug | `getScriptLastRunValues` returns the last run of a device script, with `Result` as a `DataType` (type id 4 is a double, the bytes are its IEEE-754 bits as int64) and `RunTimestampUtc`. | `configuration-model.md` |
+| Packet Parser import | `importPacketParserTemplate` (message `MessageHttpApiConfigRequest`) accepts a `ConfigJson` with one HTTP module and one variable device, hand-built or converted from a template XML by the CLI (ProtocolVersion 66, placeholder ids -1 and -2, plus the template keys `Name`, `Id` and `Revision`). The answer is `MessageHttpApiConfigResponse`. The Core allocates both ids, sets the child's `HardwareParentId`, fills defaults and runs the state script at once. | `configuration-model.md` |
+| Script debug | `getScriptLastRunValues` returns the last run of a device script, with `Result` as a `DataType` (type id 4 is a double, the bytes are its IEEE-754 bits as int64) and `RunTimestampUtc`. The per-phase variable snapshot list is decoded: phase 0 held the script variable (NaN before its first value), phase 1 was empty. | `configuration-model.md` |
+
+## CLI verification (step 2)
+
+Setup. The tool was the release build of the Rust CLI `taphome`, run on 2026-11-17 against the same Core (software 2025.2.32396, protocol 89) with the owner's approval. All created objects were named `TEST-zz-agent-test-*` and removed afterwards. On macOS an app without the Local Network permission cannot reach the LAN (os error 65, "No route to host"), which also hit the Rust binary. For this run the traffic went through a transparent loopback TCP relay started by an interpreter that has the permission. The protocol behaviour is therefore verified. A direct LAN connection from the binary on that machine is not.
+
+Reads. Every command exited 0 and decoded with no `$errors` and no `$unknown`.
+
+| Command | Observed |
+|---|---|
+| `auth login`, `auth status` | Login and stored session worked. |
+| `sync` | Summary, every section, `--full` and `--out` (file mode 600). |
+| `device list`, `device get` | Filters and single devices decoded. |
+| `io values` | All 136 devices, 424 values, every value type id has a name. |
+| `io errors` | Plain device (origin 0) and Packet Parser module (origin 1), empty lists. |
+| `io log` | Entries with `ChangeOrigin` names such as Startup and ByDeviceOrDirectLink. |
+| `io watch` | 30 s gave 4 `MessageDeviceValueChangedBroadcast` and 14 `MessageDeviceAggregatedValueChangedBroadcast`. |
+| `rule list`, `rule get`, `rule errors` | All 87 live rules, 12 trigger types, each with `TriggerParameters."$type"`. Round trip `rule get` to `rule apply --dry-run` reported no change for all 87. Error lists empty. |
+| `pp script get`, `pp script last-run` | 49 Packet Parser devices. The last run included the decoded per-phase snapshot. |
+| `raw ops`, `raw call` | `MessageGetBasicCorePropertiesRequest` and `MessageGetUsersListRequest`. |
+
+Writes. Each ran first as `--dry-run`, then for real. Each was answered Ok and passed the CLI's read-back by a fresh sync.
+
+| Command | Observed |
+|---|---|
+| `device add-virtual --model VirtualVariableGeneral` | `MessageAddDeviceResponse` with `AddedDevice`, `MessageDeviceListUpdatedBroadcast`. |
+| `device rename`, `device set-props` (`Name`) | `ErrorCode` 1, `MessageDeviceUpdatedBroadcast`. |
+| `pp import` (XML template) | CLI converted the template to `ConfigJson` (ProtocolVersion 66, keys `Name`, `Id`, `Revision` accepted), one `PacketParserModuleHttp` module and one `PacketParserVariable` child. `MessageHttpApiConfigResponse` listed both, the child got the module id as `HardwareParentId`, 2 devices added, one `MessageDeviceListUpdatedBroadcast`. The module did not keep `StayConnected`, reported as a property difference. |
+| `pp script last-run` after the import | `Result` double 7, `RunTimestampUtc` set, snapshot decoded. |
+| `pp script set` | `ReadStateScriptPacketParser` from "7" to "8": `ErrorCode` 1, `MessageDeviceUpdatedBroadcast`. Four seconds later `last-run` returned 8 and `io values` showed 8. |
+| `rule apply` create | Disabled formula rule (type 12, version 13): `ErrorCode` 1, `MessageTriggerModelsUpdatedBroadcast`. The Core reused the id of a soft-deleted rule. |
+| `rule enable`, `rule disable` | Whole stored model re-sent with `IsEnabled` changed: `ErrorCode` 1, broadcast, `ChangesetId` raised, rest unchanged, no rule errors. |
+| `rule apply` update | Same `Id`, `EvaluationFormula` from "Va" to "Va + 0": stored model equals the sent one, `ChangesetId` raised. |
+| `rule delete` | Tombstone, live count back to 87, `MessageTriggerModelsDeletedBroadcast`. |
+| `device delete` | Packet Parser child, then the module, then the variable: `ErrorCode` 1 and `MessageDeviceListUpdatedBroadcast` each. |
+
+Rule writes were also followed by `MessageAffectingTriggersInfoSubscribedBroadcast`, and a `MessageDeviceLogSubscribedBroadcast` was seen once after the enable.
+
+Guards confirmed on real data without sending. `device delete` refused the variable while a rule referenced it and refused the module while it had a child. `rule enable` without `--allow-unverified` was refused with `unverified_operation` (this gate was removed afterwards, because enable and disable are now verified).
+
+Final state equal to the baseline: 136 devices, 87 live rules (88 in total), 4 interfaces, 24 dashboards. A full configuration diff showed only the tombstone rule's `ChangesetId` and live aggregated statistics values.
+
+Not verified on a real Core: `device delete --force` and `--allow-referenced`, `device add-virtual` with other models or with properties, `pp import` with TCP, UDP, FTP or MQTT modules, the devices-only form and templates with several devices or `DeviceVariables` placeholders, creating an enabled rule or a rule of another type, updating a rule of a type other than 12, `rule errors` and `io errors` answers with entries, `raw call` writes, and release binaries for Linux and Windows, the release workflow and `install.sh` (no release exists yet).
 
 ## Not yet tested
 
-- Writes. Modbus config, TapHome Bus config (terminal mapping), other virtual device models, device actions and outputs on real hardware, users and permissions, zones, dashboards and categories, week plans, MQTT module creation, TCP, UDP and FTP Packet Parser modules, updating or enabling an existing smart rule, other rule types, `ForceDelete` true, several objects in one message, backup and restore.
+- Writes. Modbus config, TapHome Bus config (terminal mapping), other virtual device models, device actions and outputs on real hardware, users and permissions, zones, dashboards and categories, week plans, MQTT module creation, TCP, UDP and FTP Packet Parser modules, creating an enabled smart rule, creating or updating a rule of a type other than 12, `ForceDelete` true, several objects in one message, backup and restore.
 - Persistence across a Core restart.
-- Reads. Permission getters returned empty rows, so the row layout is unseen. Error list responses with entries, the `getValueHistory` container layout and the `getScriptLastRunValues` snapshot list.
+- Reads. Permission getters returned empty rows, so the row layout is unseen. Error list responses with entries (`getDeviceErrors`, `getSmartRuleErrors` and the CLI's `io errors` and `rule errors` returned only empty lists) and the `getValueHistory` container layout.
 - Not observed because nothing changed. `deviceTimersUpdated`, `interfaceUpdated`, `smartRuleErrorStatusChanges` and `moduleUptime`.
 - The TapHomeApi HTTP routes, the cloud API, UDP and mDNS discovery, session lifetime and the Next line.
 

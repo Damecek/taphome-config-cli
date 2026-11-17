@@ -474,8 +474,10 @@ paths:
         protocol: 89
         note: 'exercised for one case only: Interface Variable, Model VirtualVariableGeneral, DeviceTypeId 0, no
           CcuId and no DeviceProperties; the Core allocated the id, attached the device to the virtual CCU, generated
-          a VIRT-<guid> serial and filled default properties; one MessageDeviceListUpdatedBroadcast; other virtual
-          models not tried (addVirtualDevice and addVirtualVariable share this request class)'
+          a VIRT-<guid> serial and filled default properties; one MessageDeviceListUpdatedBroadcast; answer MessageAddDeviceResponse
+          with AddedDevice; repeated through the Rust CLI (device add-virtual) with a dry run first and a passing
+          read-back by a fresh sync; other virtual models and DeviceProperties not tried (addVirtualDevice and addVirtualVariable
+          share this request class)'
       x-variants:
       - id: addDevice
         summary: Create a device (the app uses it only for virtual devices and variables).
@@ -1406,7 +1408,9 @@ paths:
         protocol: 89
         note: ForceDelete false, ErrorCode 1 and one MessageDeviceListUpdatedBroadcast for a virtual variable, a
           Packet Parser device and, after its child was deleted, a Packet Parser module; the freed device id is
-          reused later; ForceDelete true not tried
+          reused later; repeated through the Rust CLI (variable, Packet Parser child, then module); the CLI refused
+          to delete a variable that a rule referenced and a module that still had a child, without sending; ForceDelete
+          true not tried
   /Core/messages/MessageDeleteDevicesRequest:
     post:
       operationId: deleteDevices
@@ -1924,7 +1928,8 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: ErrorCode 1 and one MessageTriggerModelsDeletedBroadcast; the rule stays as a tombstone (IsDeleted
-          true, parameters removed, changeset raised); tried for one rule
+          true, parameters removed, changeset raised); tried for one rule, again through the Rust CLI with a passing
+          read-back
   /Core/messages/MessageDeleteUserPermissionsForDashboardRequest:
     post:
       operationId: deleteUserPermissionsForDashboard
@@ -2944,7 +2949,7 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: empty response for a healthy device (OriginId 0) and for a Packet Parser module (OriginId 1), with
-          ShouldSubscribe false; a response with errors was not seen
+          ShouldSubscribe false; a response with errors was not seen (also through the Rust CLI)
   /Core/messages/MessageGetDeviceLogRequest:
     post:
       operationId: getDeviceLog
@@ -2992,7 +2997,8 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: returns value-change entries with a TapHomeTime field; ShouldSubscribe false and true both answer
-          with the same log
+          with the same log; entries carry ChangeOrigin values such as Startup and ByDeviceOrDirectLink, decoded
+          to names by the Rust CLI; one MessageDeviceLogSubscribedBroadcast was seen after a rule enable
   /Core/messages/MessageGetGroupPermissionsForDashboardRequest:
     post:
       operationId: getGroupPermissionsForDashboard
@@ -3430,8 +3436,9 @@ paths:
         protocol: 89
         note: empty for an existing device before it ran a script; after a freshly created Packet Parser device
           script ran, LastRunId with ObjectIdType 0 and ScriptKey ReadStateScriptPacketParser returned Result (DataType,
-          SerializerValueTypeId 4 = double, bytes = IEEE-754 bits as int64) and RunTimestampUtc; snapshot list not
-          decoded
+          SerializerValueTypeId 4 = double, bytes = IEEE-754 bits as int64) and RunTimestampUtc; the per-phase variable
+          snapshot list is decoded (phase 0 held the variable with NaN before its first value, phase 1 was empty);
+          after a script change the next last-run showed the new Result within four seconds
   /Core/messages/MessageGetServiceAttributeValuesRequest:
     post:
       operationId: getServiceAttributeValues
@@ -3691,7 +3698,7 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: empty response for a trigger without errors (ShouldSubscribe false), also for a freshly created formula
-          rule; a response with errors was not seen
+          rule; a response with errors was not seen; the CLI read all rules, all returned empty
   /Core/messages/MessageGetUsedTcpPortsRequest:
     post:
       operationId: getUsedTcpPorts
@@ -4420,10 +4427,13 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: 'exercised for one case only: HTTP module (PacketParserModuleHttp) with one PacketParserVariable device,
-          hand-built ConfigJson with ProtocolVersion 66 and negative placeholder ids, no template XML; AddedDevices
-          listed both, the Core set the child''s HardwareParentId and filled the other properties; not tried for
-          TCP, UDP, FTP, MQTT, Modbus (ModbusConfigRequest is a different class) or the devices-only form (addPacketParserDevice,
-          importPacketParserTemplate and addTemplateDevicesToExistingPacketParserModule share this request class)'
+          ConfigJson with ProtocolVersion 66 and negative placeholder ids (-1 module, -2 child), hand-built and
+          also converted by the CLI from a template XML (pp import); the template metadata keys Name, Id and Revision
+          in ConfigJson were accepted; the answer is MessageHttpApiConfigResponse; AddedDevices listed both, the
+          Core set the child''s HardwareParentId and filled the other properties; the module did not keep StayConnected
+          on read-back; not tried for TCP, UDP, FTP, MQTT, templates with several devices or DeviceVariables placeholders,
+          Modbus (ModbusConfigRequest is a different class) or the devices-only form (addPacketParserDevice, importPacketParserTemplate
+          and addTemplateDevicesToExistingPacketParserModule share this request class)'
       x-variants:
       - id: addPacketParserModule
         summary: Create a Packet Parser module (one target host and protocol) by sending a one-module TemplateConfiguration
@@ -4647,7 +4657,8 @@ paths:
         date: '2026-11-17'
         core: 2025.2.32396
         protocol: 89
-        note: LoginResultId 1 on a throwaway /Core socket; SessionId returned
+        note: LoginResultId 1 on a throwaway /Core socket; SessionId returned; also used for every command of the
+          Rust CLI (auth login, auth status)
   /Core/messages/MessageLongRunningTaskCancelRequest:
     post:
       operationId: cancelLongRunningTask
@@ -5035,7 +5046,8 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: fresh client first gets ReconnectResultId 4 with a DbHash, then 1 when it reconnects with that DbHash;
-          full sync decodes with no unknown fields
+          full sync decodes with no unknown fields; the Rust CLI sync (summary, every section, full, written to
+          a file) decoded with no errors and no unknown fields
       x-variants:
       - id: reconnect
         summary: Present the SessionId on a new /Core socket and receive the initial sync (devices, interfaces,
@@ -7316,8 +7328,9 @@ paths:
         protocol: 89
         note: ErrorCode 1 with one MessageDeviceUpdatedBroadcast for a rename (key Name, visible in the next sync)
           and for a script change (ReadStateScriptPacketParser on a Packet Parser variable, the new script ran at
-          once, no restart); other keys, zone, category and type not tried (setDeviceType, assignDevicesToZone and
-          assignDevicesToCategory share this request class)
+          once, no restart); repeated through the Rust CLI (device rename, device set-props with Name, pp script
+          set) with a passing read-back; other keys, zone, category and type not tried (setDeviceType, assignDevicesToZone
+          and assignDevicesToCategory share this request class)
       x-variants:
       - id: updateMultipleDevicesProperties
         summary: Apply a property delta to one or many devices (the main device configuration write).
@@ -7653,8 +7666,12 @@ paths:
         protocol: 89
         note: 'exercised for one case only: create (Id 0) of a disabled formula rule (type 12, version 13) with
           one input and one output variable; ErrorCode 1, one MessageTriggerModelsUpdatedBroadcast; the Core filled
-          TriggerInputs and Priorities and reused the id of a soft-deleted rule; updating or enabling an existing
-          rule and other rule types not tried'
+          TriggerInputs and Priorities and reused the id of a soft-deleted rule; later runs through the Rust CLI
+          also exercised enable and disable of that rule (the whole stored model re-sent with IsEnabled changed;
+          ErrorCode 1, ChangesetId grew, rest unchanged, no rule errors) and an update of its EvaluationFormula
+          (same Id; stored model equals the sent one); each write was also followed by MessageAffectingTriggersInfoSubscribedBroadcast;
+          a round trip of all 87 live rules (12 trigger types) through decode and encode reproduced the Core bytes;
+          creating an enabled rule, creating or updating a rule of another type not tried'
   /Core/messages/MessageUpdateUserPermissionsForDashboardRequest:
     post:
       operationId: updateUserPermissionsForDashboard

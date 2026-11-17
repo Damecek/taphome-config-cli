@@ -187,7 +187,7 @@ A template is an XML file with a module, its devices and their scripts, plus par
 
 `importPacketParserTemplate` sends `MessageHttpApiConfigRequest` with `CcuId` (field 1) and `ConfigJson` (field 2). The name comes from the interface that was called HTTP API before protocol 66. `importModbusTemplate` sends `MessageModbusConfigRequest` with the same layout. Both answer with `CcuId`, `AddedDevices` and `RemovedDevices`. A failure is `MessageGenericResponse`, for example error 26 when the Core is too old.
 
-`ConfigJson` is JSON with PascalCase names, nulls omitted, enums as numbers and Guids as text.
+`ConfigJson` is JSON with PascalCase names, nulls omitted, enums as numbers and Guids as text. A `ConfigJson` that also carried the template metadata keys `Name`, `Id` and `Revision` was accepted by the Core.
 
 ```
 TemplateConfiguration
@@ -241,7 +241,7 @@ An input variable of a script is a `FormulaDeviceVariable` with `DeviceId`, `Val
 
 ### Debugging
 
-The only debug channel after saving is `getScriptLastRunValues` (`MessageGetScriptLastRunValuesRequest`). It takes a `LastRunId` with an object type (Device 0, Ccu 1, Smartrule 2), the object id and the `ScriptKey`, which is the property name. The response has the variable values of each capture phase, the result, the run time and the duration. Confirmed for a Packet Parser device with `ScriptKey` "ReadStateScriptPacketParser": the response has `Result` and `RunTimestampUtc`. `Result` is a `DataType`. For a double, `SerializerValueTypeId` is 4 and `SerializerValueBytes` holds the IEEE-754 bits of the value as an int64. Before the script ran, the response held only the echoed `LastRunId`. The per-statement snapshots were not decoded. Calls to `ADDERROR`, `ADDWARNING` and `ADDINFO` appear as device errors, readable with `getDeviceErrors`.
+The only debug channel after saving is `getScriptLastRunValues` (`MessageGetScriptLastRunValuesRequest`). It takes a `LastRunId` with an object type (Device 0, Ccu 1, Smartrule 2), the object id and the `ScriptKey`, which is the property name. The response has the variable values of each capture phase, the result, the run time and the duration. Confirmed for a Packet Parser device with `ScriptKey` "ReadStateScriptPacketParser": the response has `Result` and `RunTimestampUtc`. `Result` is a `DataType`. For a double, `SerializerValueTypeId` is 4 and `SerializerValueBytes` holds the IEEE-754 bits of the value as an int64. Before the script ran, the response held only the echoed `LastRunId`. The response also holds one snapshot per capture phase with the script variables (confirmed: phase 0 held the variable, NaN before its first value, and phase 1 was empty), and the CLI decodes it. Calls to `ADDERROR`, `ADDWARNING` and `ADDINFO` appear as device errors, readable with `getDeviceErrors`.
 
 ### Sequence D. Packet Parser module with one device (confirmed for an HTTP module with one variable)
 
@@ -278,7 +278,7 @@ A rule is standalone. It refers to devices by id inside its parameters. There is
 
 ### The single update message
 
-`upsertSmartRules` sends `MessageUpdateTriggerModelsRequest` with a list `TriggerModels`. It creates (`Id` 0), updates, enables and disables rules. Enabling or disabling means sending the whole model with a changed `IsEnabled`, not a patch. The answer is `MessageGenericResponse`, followed by `MessageTriggerModelsUpdatedBroadcast`. Deleting is a separate message, `deleteSmartRules` (`MessageDeleteTriggerModelsRequest` with `TriggerIds`), followed by `MessageTriggerModelsDeletedBroadcast`. `listSmartRules` is part of the reconnect response (`SmartRules`, each element a serialized `TriggerModel`, plus `TriggerVersions` and `SmartRuleErrorStatuses`).
+`upsertSmartRules` sends `MessageUpdateTriggerModelsRequest` with a list `TriggerModels`. It creates (`Id` 0), updates, enables and disables rules. Enabling or disabling means sending the whole model with a changed `IsEnabled`, not a patch. Enabling, disabling and a changed `EvaluationFormula` of an existing formula rule were confirmed on a live Core. Each gave `ErrorCode` 1, a raised `ChangesetId` and an otherwise unchanged stored model. Updates of other rule types were not tried. The answer is `MessageGenericResponse`, followed by `MessageTriggerModelsUpdatedBroadcast`. Deleting is a separate message, `deleteSmartRules` (`MessageDeleteTriggerModelsRequest` with `TriggerIds`), followed by `MessageTriggerModelsDeletedBroadcast`. `listSmartRules` is part of the reconnect response (`SmartRules`, each element a serialized `TriggerModel`, plus `TriggerVersions` and `SmartRuleErrorStatuses`).
 
 Reordering rules for one device means changing `Priorities` on the affected rules and sending them in one update.
 

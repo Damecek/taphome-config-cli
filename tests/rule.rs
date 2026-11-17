@@ -243,24 +243,7 @@ fn unverified_variants_need_the_switch() {
         (code, error(&doc)["code"].clone()),
         (7, json!("unverified_operation"))
     );
-    // update, enable
-    let mut model = run_cli(&core, &["rule", "get", "1"]).1["data"]["model"].clone();
-    model["TriggerParameters"]["EvaluationFormula"] = json!("Vb");
-    let edited = temp_json(&core, "edit.json", &model);
-    let (code, doc) = run_cli(&core, &["rule", "apply", &edited]);
-    assert_eq!(
-        (code, error(&doc)["code"].clone()),
-        (7, json!("unverified_operation"))
-    );
-    let (code, _) = run_cli(&core, &["rule", "enable", "Test rule B"]);
-    assert_eq!(code, 7);
-    let (code, _) = run_cli(&core, &["rule", "disable", "Test rule A"]);
-    assert_eq!(code, 7);
-    assert!(core.writes().is_empty());
-
-    // with the switch they go through
-    let (code, doc) = run_cli(&core, &["rule", "apply", &enabled, "--allow-unverified"]);
-    assert_eq!(code, 0, "{doc}");
+    // update of a non-formula rule: create one with the switch, then edit it
     let (code, doc) = run_cli(
         &core,
         &[
@@ -271,7 +254,30 @@ fn unverified_variants_need_the_switch() {
         ],
     );
     assert_eq!(code, 0, "{doc}");
-    assert_eq!(rule_state(&core, 4)["TriggerTypeId"], 11);
+    let evaluation_id = data(&doc)["rule_id"].as_i64().unwrap().to_string();
+    core.clear_requests();
+    let (code, doc) = run_cli(&core, &["rule", "get", &evaluation_id]);
+    assert_eq!(code, 0, "{doc}");
+    let mut model = doc["data"]["model"].clone();
+    model["Name"] = json!("Renamed evaluation");
+    let edited = temp_json(&core, "edit.json", &model);
+    let (code, doc) = run_cli(&core, &["rule", "apply", &edited]);
+    assert_eq!(
+        (code, error(&doc)["code"].clone()),
+        (7, json!("unverified_operation"))
+    );
+    assert!(core.writes().is_empty());
+    let (code, doc) = run_cli(&core, &["rule", "apply", &edited, "--allow-unverified"]);
+    assert_eq!(code, 0, "{doc}");
+    core.clear_requests();
+
+    // with the switch they go through
+    let (code, doc) = run_cli(&core, &["rule", "apply", &enabled, "--allow-unverified"]);
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(
+        rule_state(&core, evaluation_id.parse().unwrap())["TriggerTypeId"],
+        11
+    );
 }
 
 #[test]
@@ -289,10 +295,10 @@ fn get_edit_apply_round_trip_updates_one_field() {
     assert_eq!(diff[0]["op"], "change");
     assert_eq!(diff[0]["path"], "TriggerParameters.EvaluationFormula");
     assert_eq!(diff[0]["after"], "Va + 1");
-    assert_eq!(data(&doc)["verified"], false);
+    assert_eq!(data(&doc)["verified"], true);
     assert!(core.writes().is_empty());
 
-    let (code, doc) = run_cli(&core, &["rule", "apply", &file, "--allow-unverified"]);
+    let (code, doc) = run_cli(&core, &["rule", "apply", &file]);
     assert_eq!(code, 0, "{doc}");
     assert_eq!(data(&doc)["rule_id"], 1);
     assert!(check_names(&doc).iter().all(|(_, ok)| *ok));
@@ -304,7 +310,7 @@ fn get_edit_apply_round_trip_updates_one_field() {
     core.clear_requests();
     let (_, doc) = run_cli(&core, &["rule", "get", "1"]);
     let file = temp_json(&core, "same.json", &data(&doc)["model"]);
-    let (code, doc) = run_cli(&core, &["rule", "apply", &file, "--allow-unverified"]);
+    let (code, doc) = run_cli(&core, &["rule", "apply", &file]);
     assert_eq!(code, 0, "{doc}");
     assert_eq!(data(&doc)["changed"], false);
     assert!(core.writes().is_empty());
@@ -348,20 +354,20 @@ fn round_trip_mismatch_stops_every_update_path() {
     let mut model = data(&doc)["model"].clone();
     model["Name"] = json!("Renamed");
     let file = temp_json(&core, "mismatch.json", &model);
-    let (code, doc) = run_cli(&core, &["rule", "apply", &file, "--allow-unverified"]);
+    let (code, doc) = run_cli(&core, &["rule", "apply", &file]);
     assert_eq!(
         (code, error(&doc)["code"].clone()),
         (7, json!("roundtrip_mismatch")),
         "{doc}"
     );
-    let (code, doc) = run_cli(&core, &["rule", "disable", "1", "--allow-unverified"]);
+    let (code, doc) = run_cli(&core, &["rule", "disable", "1"]);
     assert_eq!(
         (code, error(&doc)["code"].clone()),
         (7, json!("roundtrip_mismatch"))
     );
     assert!(core.writes().is_empty());
     // the rule that does round-trip is still editable
-    let (code, _) = run_cli(&core, &["rule", "disable", "2", "--allow-unverified"]);
+    let (code, _) = run_cli(&core, &["rule", "disable", "2"]);
     assert_eq!(code, 0, "already disabled: no-op");
 }
 
@@ -369,10 +375,7 @@ fn round_trip_mismatch_stops_every_update_path() {
 fn enable_and_disable_flip_the_flag_and_keep_the_rest() {
     let core = FakeCore::start();
     let before = rule_state(&core, 2);
-    let (code, doc) = run_cli(
-        &core,
-        &["rule", "enable", "Test rule B", "--allow-unverified"],
-    );
+    let (code, doc) = run_cli(&core, &["rule", "enable", "Test rule B"]);
     assert_eq!(code, 0, "{doc}");
     assert_eq!(data(&doc)["changed"], true);
     assert!(check_names(&doc).iter().all(|(_, ok)| *ok), "{doc}");
@@ -384,7 +387,7 @@ fn enable_and_disable_flip_the_flag_and_keep_the_rest() {
     );
     assert!(after["ChangesetId"].as_i64() > before["ChangesetId"].as_i64());
 
-    let (code, doc) = run_cli(&core, &["rule", "disable", "2", "--allow-unverified"]);
+    let (code, doc) = run_cli(&core, &["rule", "disable", "2"]);
     assert_eq!(code, 0, "{doc}");
     assert_ne!(
         rule_state(&core, 2)["IsEnabled"],
@@ -394,7 +397,7 @@ fn enable_and_disable_flip_the_flag_and_keep_the_rest() {
 
     // already in that state: nothing is sent
     core.clear_requests();
-    let (code, doc) = run_cli(&core, &["rule", "disable", "2", "--allow-unverified"]);
+    let (code, doc) = run_cli(&core, &["rule", "disable", "2"]);
     assert_eq!(code, 0, "{doc}");
     assert_eq!(data(&doc)["changed"], false);
     assert!(core.writes().is_empty());
@@ -406,7 +409,7 @@ fn enable_dry_run_sends_nothing() {
     let (code, doc) = run_cli(&core, &["rule", "enable", "2", "--dry-run"]);
     assert_eq!(code, 0, "{doc}");
     let d = data(&doc);
-    assert_eq!(d["verified"], false);
+    assert_eq!(d["verified"], true);
     assert_eq!(d["diff"][0]["path"], "IsEnabled");
     assert_eq!(
         d["message"]["fields"]["TriggerModels"][0]["IsEnabled"],
