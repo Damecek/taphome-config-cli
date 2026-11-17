@@ -1,6 +1,7 @@
 """Catalog-driven protobuf-net codec for the TapHome wire format.
 
-The catalog (work/catalog/*.json, built by scripts/build_catalog.py) describes every type.
+The catalog (work/catalog/*.json, built by scripts/build_catalog.py) describes every type. The CLI catalog
+data/catalog.json (scripts/build_cli_catalog.py, from the OpenAPI spec) has the same shape and also works.
 Values are plain Python data:
 
 * ints, bools, floats, str; enums are ints.
@@ -15,7 +16,8 @@ Values are plain Python data:
   IsPacked. Packed and unpacked are both accepted on read.
 * Nullable (T?): written whenever the key is present and not None.
 * Inheritance: decode returns a flat dict with "$type" naming the concrete class; encode takes
-  the concrete class from "$type" (default: the type given).
+  the concrete class from "$type" (default: the type given). Flattening needs unique member names
+  along every include chain, so Codec() rejects a catalog where a class and its base share one.
 * Unknown fields: kept in "$unknown" as {"tag", "wt", "hex", "in"} and written back on encode.
 """
 from __future__ import annotations
@@ -260,6 +262,20 @@ class Codec:
             for inc in t.get("includes") or []:
                 self.parent[inc["type"]] = (t["name"], inc["tag"])
         self.message_type = {m["name"]: m["message_type"] for m in catalog["messages"]}
+        self._check_name_collisions()
+
+    def _check_name_collisions(self):
+        """Decode merges a hierarchy into one dict, so a member name may appear only once per include chain."""
+        for name in self.parent:
+            seen, cur = {}, name
+            while True:
+                for m in (self.types.get(cur) or {}).get("members") or []:
+                    if m["name"] in seen:
+                        raise CodecError("member %s is declared in both %s and %s" % (m["name"], seen[m["name"]], cur))
+                    seen[m["name"]] = cur
+                if cur not in self.parent:
+                    break
+                cur = self.parent[cur][0]
 
     @classmethod
     def load(cls, path) -> "Codec":
@@ -280,7 +296,7 @@ class Codec:
         for m in tdef.get("members") or []:
             if m.get("map"):
                 ts = "Dictionary<%s, %s>" % (m["map"]["key"], m["map"]["value"])
-            elif m["repeated"] and m.get("element_type"):
+            elif m.get("repeated") and m.get("element_type"):
                 ts = "List<%s>" % m["element_type"]
             else:
                 ts = m["type"]
@@ -328,14 +344,15 @@ class Codec:
         if c[0] == "nullable":
             return self._enc_field(tag, c[1], v, True, packed, wt, zz)
         if c[0] == "list":
-            if packed and v:
+            if packed:  # protobuf-net writes an empty packed list as a zero-length field (seen from a live Core)
                 return ld(tag, b"".join(self._enc_scalar_payload(c[1], x, wt, zz) for x in v))
             return b"".join(self._enc_field(tag, c[1], x, True, False, wt, zz) for x in v)
         if c[0] == "map":
             out = b""
             for k, val in (v.items() if isinstance(v, dict) else v):
-                entry = (self._enc_field(1, c[1], self._coerce(c[1], k), True)
-                         + self._enc_field(2, c[2], val, True))
+                entry = self._enc_field(1, c[1], self._coerce(c[1], k), True)
+                if val is not None:  # a null message value is an entry without field 2, as decode returns it
+                    entry += self._enc_field(2, c[2], val, True)
                 out += ld(tag, entry)
             return out
         if c[0] == "tuple":
@@ -507,7 +524,7 @@ class Codec:
             return []
         if c[0] == "map":
             return {}
-        if c[0] == "nullable":
+        if c[0] in ("nullable", "tuple"):
             return None
         ts = c[1]
         if ts == "string":

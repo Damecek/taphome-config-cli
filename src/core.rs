@@ -124,18 +124,27 @@ impl Ctx {
 
     /// `--timeout` when given, else `default`.
     pub fn timeout(&self, default: Duration) -> Duration {
-        self.global.timeout.map(Duration::from_secs_f64).unwrap_or(default)
+        self.global
+            .timeout
+            .map(Duration::from_secs_f64)
+            .unwrap_or(default)
     }
 
     /// Registers a value that must never appear in the output (session id, hash).
     pub fn add_secret(&self, value: &str) {
         if !value.is_empty() {
-            self.secrets.lock().unwrap_or_else(|p| p.into_inner()).push(value.to_string());
+            self.secrets
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push(value.to_string());
         }
     }
 
     pub fn warn(&self, message: impl Into<String>) {
-        self.warnings.lock().unwrap_or_else(|p| p.into_inner()).push(message.into());
+        self.warnings
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push(message.into());
     }
 
     pub fn take_warnings(&self) -> Vec<String> {
@@ -145,7 +154,11 @@ impl Ctx {
     pub fn redactor(&self) -> Redactor {
         Redactor {
             show_secrets: self.global.show_secrets,
-            values: self.secrets.lock().unwrap_or_else(|p| p.into_inner()).clone(),
+            values: self
+                .secrets
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .clone(),
         }
     }
 }
@@ -153,7 +166,11 @@ impl Ctx {
 // ---------------------------------------------------------------- session
 
 fn missing_config(missing: &[&str]) -> CliError {
-    CliError::new("missing_config", format!("set {} in the environment", missing.join(", "))).with_details(json!({"missing": missing}))
+    CliError::new(
+        "missing_config",
+        format!("set {} in the environment", missing.join(", ")),
+    )
+    .with_details(json!({"missing": missing}))
 }
 
 fn host_of(ctx: &Ctx, stored: Option<&StoredSession>) -> Result<String> {
@@ -190,25 +207,36 @@ pub async fn login(ctx: &Ctx) -> Result<LoginOutcome> {
     ctx.add_secret(&hash);
     let timeouts = ctx.options().timeouts;
     let location = client::identify(&host, &timeouts).await?;
-    let location_id = location["LocationId"].as_str().unwrap_or_default().to_string();
+    let location_id = location["LocationId"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     let device_id = config::device_id(&ctx.env)?;
     let response = client::login(&host, &location_id, &user, &hash, &device_id, &timeouts).await?;
     let result = response["LoginResultId"].as_i64().unwrap_or(0);
-    let response_location = response["LocationInfo"]["LocationId"].as_str().unwrap_or(&location_id);
+    let response_location = response["LocationInfo"]["LocationId"]
+        .as_str()
+        .unwrap_or(&location_id);
     if result == 1 && response_location != location_id {
         return Err(
-            CliError::new("login_failed", "the Core answered for a different location").with_details(json!({"login_result": "WrongLogin"}))
+            CliError::new("login_failed", "the Core answered for a different location")
+                .with_details(json!({"login_result": "WrongLogin"})),
         );
     }
     if result != 1 {
         let name = catalog::enum_name("LoginResult", result)
             .map(str::to_string)
             .unwrap_or_else(|| result.to_string());
-        return Err(
-            CliError::new("login_failed", format!("the Core refused the login: {name}")).with_details(json!({"login_result": name}))
-        );
+        return Err(CliError::new(
+            "login_failed",
+            format!("the Core refused the login: {name}"),
+        )
+        .with_details(json!({"login_result": name})));
     }
-    let session_id = response["SessionId"].as_str().unwrap_or_default().to_string();
+    let session_id = response["SessionId"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
     ctx.add_secret(&session_id);
     let session = StoredSession {
         host,
@@ -245,7 +273,10 @@ pub async fn reconnect(ctx: &Ctx, stored: &StoredSession) -> Result<Reconnect> {
         )
         .await?;
         let result = session.reconnect["ReconnectResultId"].as_i64().unwrap_or(0);
-        let offered = session.reconnect["DbHash"].as_str().filter(|h| !h.is_empty()).map(str::to_string);
+        let offered = session.reconnect["DbHash"]
+            .as_str()
+            .filter(|h| !h.is_empty())
+            .map(str::to_string);
         match result {
             1 => {
                 if offered.is_some() && offered != stored.db_hash {
@@ -273,9 +304,18 @@ pub async fn reconnect(ctx: &Ctx, stored: &StoredSession) -> Result<Reconnect> {
                     "the Core is still starting, try again in about 10 seconds",
                 ))
             }
-            5 => return Err(CliError::new("unauthorized", "the user has no remote access").with_exit(crate::errors::EXIT_AUTH)),
+            5 => {
+                return Err(
+                    CliError::new("unauthorized", "the user has no remote access")
+                        .with_exit(crate::errors::EXIT_AUTH),
+                )
+            }
             6 => return Err(CliError::protocol("the Core says this client is too old")),
-            other => return Err(CliError::protocol(format!("unexpected ReconnectResult {other}"))),
+            other => {
+                return Err(CliError::protocol(format!(
+                    "unexpected ReconnectResult {other}"
+                )))
+            }
         }
     }
     Err(CliError::protocol("the Core keeps rejecting the DbHash"))
@@ -284,7 +324,12 @@ pub async fn reconnect(ctx: &Ctx, stored: &StoredSession) -> Result<Reconnect> {
 /// A stored session counts only for the configured host and user.
 fn stored_for_config(ctx: &Ctx) -> Option<StoredSession> {
     config::load_session(&ctx.env).filter(|s| {
-        ctx.config.host.as_ref().is_none_or(|h| *h == s.host) && ctx.config.user.as_ref().is_none_or(|u| u.to_lowercase() == s.user)
+        ctx.config.host.as_ref().is_none_or(|h| *h == s.host)
+            && ctx
+                .config
+                .user
+                .as_ref()
+                .is_none_or(|u| u.to_lowercase() == s.user)
     })
 }
 
@@ -305,9 +350,14 @@ pub async fn open_session(ctx: &Ctx) -> Result<Session> {
         match reconnect(ctx, &current).await? {
             Reconnect::Ready(session) => return Ok(session),
             Reconnect::WrongSession if fresh => {
-                return Err(CliError::new("session_invalid", "the Core rejected a session it just issued"));
+                return Err(CliError::new(
+                    "session_invalid",
+                    "the Core rejected a session it just issued",
+                ));
             }
-            Reconnect::WrongSession if ctx.config.user.is_none() || ctx.config.password.is_none() => {
+            Reconnect::WrongSession
+                if ctx.config.user.is_none() || ctx.config.password.is_none() =>
+            {
                 return Err(CliError::new(
                     "session_invalid",
                     "the stored session is no longer valid: set TAPHOME_USER and TAPHOME_PASSWORD to log in again",
@@ -376,15 +426,18 @@ impl Snapshot {
 
     pub fn from_reconnect(r: &Value) -> Result<Snapshot> {
         if r["$type"] != "MessageReconnectResponse" {
-            return Err(CliError::protocol("no reconnect response to build a snapshot from"));
+            return Err(CliError::protocol(
+                "no reconnect response to build a snapshot from",
+            ));
         }
         let rules = array(&r["SmartRules"])
             .iter()
             .map(|raw| {
                 let raw_hex = raw.as_str().unwrap_or_default().to_string();
-                let bytes = from_hex(&raw_hex).ok_or_else(|| CliError::protocol("a smart rule is not valid hex"))?;
-                let model =
-                    codec::decode("TriggerModel", &bytes).map_err(|e| CliError::protocol(format!("undecodable smart rule: {e}")))?;
+                let bytes = from_hex(&raw_hex)
+                    .ok_or_else(|| CliError::protocol("a smart rule is not valid hex"))?;
+                let model = codec::decode("TriggerModel", &bytes)
+                    .map_err(|e| CliError::protocol(format!("undecodable smart rule: {e}")))?;
                 Ok(Rule {
                     id: int(&model, "Id"),
                     name: model["Name"].as_str().unwrap_or_default().to_string(),
@@ -399,10 +452,17 @@ impl Snapshot {
             .collect::<Result<Vec<_>>>()?;
         let trigger_versions = r["TriggerVersions"]
             .as_object()
-            .map(|m| m.iter().filter_map(|(k, v)| Some((k.parse().ok()?, v.as_i64()?))).collect())
+            .map(|m| {
+                m.iter()
+                    .filter_map(|(k, v)| Some((k.parse().ok()?, v.as_i64()?)))
+                    .collect()
+            })
             .unwrap_or_default();
         Ok(Snapshot {
-            core_version: r["CoreVersionString"].as_str().unwrap_or_default().to_string(),
+            core_version: r["CoreVersionString"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
             protocol: int(r, "CurrentProtocolVersion"),
             location: r["LocationInfo"].clone(),
             user: r["UserInfo"].clone(),
@@ -455,7 +515,13 @@ impl Snapshot {
 
     /// A live rule by integer id, or by exact name when exactly one live rule has it.
     pub fn find_rule(&self, reference: &str) -> Result<&Rule> {
-        lookup("rule", reference, self.live_rules(), |r| r.id, |r| r.name.as_str())
+        lookup(
+            "rule",
+            reference,
+            self.live_rules(),
+            |r| r.id,
+            |r| r.name.as_str(),
+        )
     }
 
     /// An interface by integer `CcuId`, or by exact name when exactly one has it.
@@ -501,14 +567,24 @@ fn lookup<'a, T: 'a>(
 
 /// Sends one request and returns the decoded response. A `MessageGenericResponse` failure becomes a
 /// [`CliError`]. When `expect` is given, any other response class is a `protocol_error`.
-pub async fn request(ctx: &Ctx, session: &Session, class: &str, fields: &Value, expect: Option<&str>) -> Result<Value> {
-    let response = session.request(class, fields, ctx.options().timeouts.request).await?;
+pub async fn request(
+    ctx: &Ctx,
+    session: &Session,
+    class: &str,
+    fields: &Value,
+    expect: Option<&str>,
+) -> Result<Value> {
+    let response = session
+        .request(class, fields, ctx.options().timeouts.request)
+        .await?;
     let got = response["$type"].as_str().unwrap_or_default();
     if got == "MessageGenericResponse" {
         check_generic_response(&response)?;
     }
     match expect {
-        Some(want) if want != got => Err(CliError::protocol(format!("expected {want}, the Core answered {got}"))),
+        Some(want) if want != got => Err(CliError::protocol(format!(
+            "expected {want}, the Core answered {got}"
+        ))),
         _ => Ok(response),
     }
 }
@@ -553,7 +629,14 @@ impl Check {
 }
 
 /// `{"op": "add|remove|change", "object": "device|rule|interface", "id", "path", "before", "after"}`.
-pub fn diff_entry(op: &str, object: &str, id: Value, path: &str, before: Value, after: Value) -> Value {
+pub fn diff_entry(
+    op: &str,
+    object: &str,
+    id: Value,
+    path: &str,
+    before: Value,
+    after: Value,
+) -> Value {
     json!({"op": op, "object": object, "id": id, "path": path, "before": before, "after": after})
 }
 
@@ -568,7 +651,11 @@ pub struct WritePlan {
 }
 
 impl WritePlan {
-    pub fn new(fields: Value, diff: Vec<Value>, verify: impl Fn(&Snapshot, &Value) -> Vec<Check> + 'static) -> WritePlan {
+    pub fn new(
+        fields: Value,
+        diff: Vec<Value>,
+        verify: impl Fn(&Snapshot, &Value) -> Vec<Check> + 'static,
+    ) -> WritePlan {
         WritePlan {
             fields,
             diff,
@@ -641,11 +728,14 @@ where
             return Err(e);
         }
     };
-    let verified = catalog::operation(spec.class).is_some_and(|op| op.verified) && spec.variant_verified;
+    let verified =
+        catalog::operation(spec.class).is_some_and(|op| op.verified) && spec.variant_verified;
     if spec.flags.dry_run {
         session.close().await;
-        return Ok(json!({"dry_run": true, "operation": spec.operation_id, "verified": verified,
-                         "message": {"class": spec.class, "fields": plan.fields}, "diff": plan.diff}));
+        return Ok(
+            json!({"dry_run": true, "operation": spec.operation_id, "verified": verified,
+                         "message": {"class": spec.class, "fields": plan.fields}, "diff": plan.diff}),
+        );
     }
     if !verified && !spec.flags.allow_unverified {
         session.close().await;
@@ -693,7 +783,13 @@ where
 /// Counts from `before` and `after` as signed differences, for commands that report what changed.
 pub fn count_delta(before: &Value, after: &Value) -> Value {
     let mut out = Map::new();
-    for key in ["devices", "rules_live", "rules_total", "interfaces", "dashboards"] {
+    for key in [
+        "devices",
+        "rules_live",
+        "rules_total",
+        "interfaces",
+        "dashboards",
+    ] {
         out.insert(
             key.to_string(),
             json!(after[key].as_i64().unwrap_or(0) - before[key].as_i64().unwrap_or(0)),

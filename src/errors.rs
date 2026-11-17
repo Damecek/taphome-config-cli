@@ -117,13 +117,22 @@ pub fn snake_case(name: &str) -> String {
 /// then. Device actions answer `ErrorCode` 0 with flag 1 (Handled), which also counts as success.
 pub fn check_generic_response(resp: &Value) -> Result<()> {
     let code = resp.get("ErrorCode").and_then(Value::as_i64).unwrap_or(0);
-    let flags = resp.get("ResponseFlagsId").and_then(Value::as_i64).unwrap_or(0);
-    let message = resp.get("ErrorMessage").and_then(Value::as_str).unwrap_or("");
+    let flags = resp
+        .get("ResponseFlagsId")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let message = resp
+        .get("ErrorMessage")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     if code == 1 && flags != 2 || code == 0 && flags == 1 {
         return Ok(());
     }
     let (name, text) = if code == 1 || code == 0 {
-        ("not_handled".to_string(), "the Core did not handle the request".to_string())
+        (
+            "not_handled".to_string(),
+            "the Core did not handle the request".to_string(),
+        )
     } else {
         let name = catalog::enum_name("CommonErrorCodes", code)
             .map(snake_case)
@@ -148,7 +157,10 @@ mod tests {
     fn snake_case_names() {
         assert_eq!(snake_case("AlreadyExist"), "already_exist");
         assert_eq!(snake_case("Unauthorized"), "unauthorized");
-        assert_eq!(snake_case("DeserializationException"), "deserialization_exception");
+        assert_eq!(
+            snake_case("DeserializationException"),
+            "deserialization_exception"
+        );
     }
 
     #[test]

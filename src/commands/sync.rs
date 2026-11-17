@@ -43,8 +43,10 @@ fn section(s: &Snapshot, which: Section) -> Value {
         Section::Interfaces => json!({"interfaces": s.interfaces}),
         Section::Rules => json!({"rules": s.rules.iter().map(|r| r.to_json()).collect::<Vec<_>>()}),
         Section::Dashboards => json!({"dashboards": s.dashboards}),
-        Section::Core => json!({"core_version": s.core_version, "protocol": s.protocol, "counts": s.counts(), "location": s.location,
-                                "user": s.user, "trigger_versions": s.trigger_versions, "core_properties": s.core_properties}),
+        Section::Core => {
+            json!({"core_version": s.core_version, "protocol": s.protocol, "counts": s.counts(), "location": s.location,
+                                "user": s.user, "trigger_versions": s.trigger_versions, "core_properties": s.core_properties})
+        }
     }
 }
 
@@ -77,8 +79,11 @@ pub async fn run(ctx: &Ctx, cmd: Cmd) -> Result<Value, CliError> {
     match cmd.out {
         None => Ok(selected.unwrap_or_else(|| summary(&snapshot))),
         Some(path) => {
-            let doc = ctx.redactor().redact(&selected.unwrap_or_else(|| full(&snapshot)));
-            let bytes = serde_json::to_vec_pretty(&doc).map_err(|e| CliError::internal(e.to_string()))?;
+            let doc = ctx
+                .redactor()
+                .redact(&selected.unwrap_or_else(|| full(&snapshot)));
+            let bytes =
+                serde_json::to_vec_pretty(&doc).map_err(|e| CliError::internal(e.to_string()))?;
             write_private(&path, &bytes)?;
             let mut out = summary(&snapshot);
             out["out"] = json!(path.display().to_string());

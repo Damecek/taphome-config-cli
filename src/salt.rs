@@ -67,7 +67,9 @@ impl Salt {
 
     /// Exact-value redaction needs the salt as text. Non-UTF-8 salts cannot appear in JSON output anyway.
     pub fn as_text(&self) -> Option<&str> {
-        std::str::from_utf8(&self.bytes).ok().filter(|s| !s.is_empty())
+        std::str::from_utf8(&self.bytes)
+            .ok()
+            .filter(|s| !s.is_empty())
     }
 }
 
@@ -102,6 +104,12 @@ mod tests {
         env.set("TAPHOME_PASSWORD_SALT", "from-env");
         assert_eq!(Salt::resolve(&env, b"built").source, SaltSource::Env);
         assert_eq!(Salt::resolve(&env, b"").source, SaltSource::Env);
-        assert_eq!(Salt::resolve(&Env::default(), b"").hash("p").unwrap_err().code, "salt_missing");
+        assert_eq!(
+            Salt::resolve(&Env::default(), b"")
+                .hash("p")
+                .unwrap_err()
+                .code,
+            "salt_missing"
+        );
     }
 }

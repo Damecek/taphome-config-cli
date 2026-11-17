@@ -1,6 +1,8 @@
 //! `taphome raw call | ops`: send any request class, behind the safety gates.
 use crate::catalog;
-use crate::core::{count_delta, frame_hex, open_session, request, run_write, Ctx, WriteFlags, WritePlan, WriteSpec};
+use crate::core::{
+    count_delta, frame_hex, open_session, request, run_write, Ctx, WriteFlags, WritePlan, WriteSpec,
+};
 use crate::errors::CliError;
 use clap::{Args, Subcommand};
 use serde_json::{json, Map, Value};
@@ -69,15 +71,18 @@ fn ops(args: OpsArgs) -> Value {
 fn load_fields(args: &CallArgs) -> Result<Value, CliError> {
     let text = match (&args.json, &args.json_file) {
         (Some(t), _) => t.clone(),
-        (None, Some(path)) => {
-            std::fs::read_to_string(path).map_err(|e| CliError::invalid_input(format!("cannot read --json-file: {e}")))?
-        }
+        (None, Some(path)) => std::fs::read_to_string(path)
+            .map_err(|e| CliError::invalid_input(format!("cannot read --json-file: {e}")))?,
         (None, None) => return Ok(json!({})),
     };
     match serde_json::from_str::<Value>(&text) {
         Ok(v @ Value::Object(_)) => Ok(v),
-        Ok(_) => Err(CliError::invalid_input("the request fields must be a JSON object")),
-        Err(e) => Err(CliError::invalid_input(format!("the request fields are not valid JSON: {e}"))),
+        Ok(_) => Err(CliError::invalid_input(
+            "the request fields must be a JSON object",
+        )),
+        Err(e) => Err(CliError::invalid_input(format!(
+            "the request fields are not valid JSON: {e}"
+        ))),
     }
 }
 
@@ -142,7 +147,13 @@ async fn call(ctx: &Ctx, args: CallArgs) -> Result<Value, CliError> {
     Ok(json!({"class": class, "response": response?, "broadcasts": counts}))
 }
 
-async fn raw_write(ctx: &Ctx, class: &str, fields: Value, wait: Duration, allow_unverified: bool) -> Result<Value, CliError> {
+async fn raw_write(
+    ctx: &Ctx,
+    class: &str,
+    fields: Value,
+    wait: Duration,
+    allow_unverified: bool,
+) -> Result<Value, CliError> {
     let operation = catalog::operation(class)
         .and_then(|o| o.ids.first().cloned())
         .unwrap_or_else(|| class.to_string());

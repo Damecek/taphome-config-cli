@@ -119,7 +119,7 @@ fn guid(n: u64) -> String {
 }
 
 fn rule_model(id: i64, name: &str, enabled: bool) -> Value {
-    let class = catalog::trigger_parameters_class(12, 13).expect("formula trigger parameters class");
+    let class = "FormulaTriggerParameters";
     json!({"Id": id, "TriggerTypeId": 12, "Name": name, "Version": 13, "IsEnabled": enabled, "ChangesetId": 1,
            "TriggerParameters": {"$type": class,
                "InputVariables": [{"DeviceId": 11, "ValueLogType": 62, "Abbreviation": "Va"}],

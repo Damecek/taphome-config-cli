@@ -41,19 +41,30 @@ fn default_config_dir(get: impl Fn(&str) -> Option<String>) -> PathBuf {
 impl Env {
     pub fn from_process() -> Env {
         let config_dir = default_config_dir(|k| std::env::var(k).ok());
-        let vars = std::env::vars().filter(|(k, _)| k.starts_with("TAPHOME_")).collect();
+        let vars = std::env::vars()
+            .filter(|(k, _)| k.starts_with("TAPHOME_"))
+            .collect();
         Env { vars, config_dir }
     }
 
-    pub fn new<K: Into<String>, V: Into<String>>(config_dir: impl Into<PathBuf>, vars: impl IntoIterator<Item = (K, V)>) -> Env {
+    pub fn new<K: Into<String>, V: Into<String>>(
+        config_dir: impl Into<PathBuf>,
+        vars: impl IntoIterator<Item = (K, V)>,
+    ) -> Env {
         Env {
-            vars: vars.into_iter().map(|(k, v)| (k.into(), v.into())).collect(),
+            vars: vars
+                .into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
             config_dir: config_dir.into(),
         }
     }
 
     pub fn get(&self, name: &str) -> Option<&str> {
-        self.vars.get(name).map(String::as_str).filter(|v| !v.is_empty())
+        self.vars
+            .get(name)
+            .map(String::as_str)
+            .filter(|v| !v.is_empty())
     }
 
     pub fn set(&mut self, name: &str, value: &str) {
@@ -74,7 +85,12 @@ impl Env {
             None => Ok(None),
             Some(path) => fs::read_to_string(path)
                 .map(|s| Some(s.trim().to_string()).filter(|s| !s.is_empty()))
-                .map_err(|e| CliError::new("missing_config", format!("cannot read the file named by {file_var}: {e}"))),
+                .map_err(|e| {
+                    CliError::new(
+                        "missing_config",
+                        format!("cannot read the file named by {file_var}: {e}"),
+                    )
+                }),
         }
     }
 }
@@ -116,8 +132,10 @@ fn set_mode(_path: &Path, _mode: u32) -> std::io::Result<()> {
 
 /// Creates the config directory (mode 700 on unix).
 pub fn ensure_config_dir(env: &Env) -> Result<()> {
-    fs::create_dir_all(&env.config_dir).map_err(|e| io_error("cannot create the config directory", e))?;
-    set_mode(&env.config_dir, 0o700).map_err(|e| io_error("cannot restrict the config directory", e))
+    fs::create_dir_all(&env.config_dir)
+        .map_err(|e| io_error("cannot create the config directory", e))?;
+    set_mode(&env.config_dir, 0o700)
+        .map_err(|e| io_error("cannot restrict the config directory", e))
 }
 
 /// Writes a file with mode 600 (unix), atomically: temp file in the same directory, then rename.
@@ -188,7 +206,9 @@ pub fn device_id(env: &Env) -> Result<String> {
     }
     use std::hash::{BuildHasher, Hasher};
     // RandomState is seeded from the OS per instance: enough randomness for an id that only needs to be unique.
-    let n = std::collections::hash_map::RandomState::new().build_hasher().finish();
+    let n = std::collections::hash_map::RandomState::new()
+        .build_hasher()
+        .finish();
     let id = format!("{n:016x}");
     ensure_config_dir(env)?;
     write_private(&path, format!("{id}\n").as_bytes())?;

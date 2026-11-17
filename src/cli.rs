@@ -116,7 +116,10 @@ fn execute(args: &[String], env: Env, built_in_salt: &[u8]) -> (i32, Value, bool
         }
         Err(e) => {
             let text = e.render().to_string();
-            let error = CliError::new("usage", text.trim().trim_start_matches("error: ").to_string());
+            let error = CliError::new(
+                "usage",
+                text.trim().trim_start_matches("error: ").to_string(),
+            );
             return (error.exit_code, output::failure("taphome", &error), false);
         }
     };

@@ -1,0 +1,840 @@
+[
+ {
+  "name": "doc guid example",
+  "type": "LocationInfo",
+  "value": {
+   "$type": "LocationInfo",
+   "LocationId": "00112233-4455-6677-8899-aabbccddeeff"
+  },
+  "hex": "0a12093322110055447766118899aabbccddeeff"
+ },
+ {
+  "name": "location info with empty guid and bool",
+  "type": "LocationInfo",
+  "value": {
+   "$type": "LocationInfo",
+   "Name": "home",
+   "IsInTestMode": true
+  },
+  "hex": "1204686f6d653001"
+ },
+ {
+  "name": "doc root-first GenericDevice",
+  "type": "DeviceBase",
+  "value": {
+   "$type": "GenericDevice",
+   "CcuId": 3,
+   "Name": "x"
+  },
+  "hex": "a206020803120178"
+ },
+ {
+  "name": "GenericDevice declared as derived type",
+  "type": "GenericDevice",
+  "value": {
+   "$type": "GenericDevice",
+   "CcuId": 3,
+   "Name": "x"
+  },
+  "hex": "a206020803120178"
+ },
+ {
+  "name": "GenericDevice full",
+  "type": "DeviceBase",
+  "value": {
+   "$type": "GenericDevice",
+   "CcuId": 3,
+   "DeviceProperties": {
+    "a": "b",
+    "empty": ""
+   },
+   "WrappingDevicesIds": [
+    0,
+    7
+   ],
+   "ID": 12,
+   "Name": "Lamp",
+   "Icon": 5,
+   "Model": "m",
+   "ManualChangeTimeout": 0,
+   "CurrentValues": {
+    "1": {
+     "$type": "ValueLog",
+     "Type": 1,
+     "Value": 21.5,
+     "ChangedOnTHUtc": 123456
+    }
+   },
+   "EnabledValueAggregations": {
+    "5": [
+     {
+      "$type": "DeviceValueAggregationExtended",
+      "AggregationUsage": 2,
+      "HistorySubAggregationsHashCodes": [
+       3,
+       -4
+      ],
+      "StatisticsFunction": 1
+     },
+     {
+      "$type": "DeviceValueAggregationExtended",
+      "HistorySubAggregationsHashCodes": []
+     }
+    ]
+   },
+   "AggregatedValues": {
+    "5": {
+     "7": 1.5,
+     "8": "NaN"
+    }
+   },
+   "ZoneId": "00112233-4455-6677-8899-aabbccddeeff",
+   "HardwareParentId": -1,
+   "SupportedActionTypes": [
+    1,
+    2
+   ]
+  },
+  "hex": "a2061908031a060a01611201621a090a05656d707479120020002007080c12044c616d70180522016d580062130801120f080119000000000080354030c0c40792011f08051214a2060f0802420b03fcffffffffffffffff0108011205a2060242009a0114080512070807150000c03f12070808150000c07faa0112093322110055447766118899aabbccddeeffb801ffffffffffffffffff01c00101c00102"
+ },
+ {
+  "name": "doc map entries",
+  "type": "TriggerModel",
+  "value": {
+   "$type": "TriggerModel",
+   "Priorities": {
+    "1": 0
+   }
+  },
+  "hex": "7a0408011000"
+ },
+ {
+  "name": "rule with formula parameters",
+  "type": "TriggerModel",
+  "value": {
+   "$type": "TriggerModel",
+   "Id": 7,
+   "TriggerTypeId": 12,
+   "Name": "zz test rule",
+   "Version": 13,
+   "IsEnabled": true,
+   "ChangesetId": 3,
+   "TriggerParameters": {
+    "$type": "FormulaTriggerParameters",
+    "InputVariables": [
+     {
+      "$type": "FormulaDeviceVariable",
+      "DeviceId": 41,
+      "ValueLogType": 1,
+      "ValueAggregation": {
+       "$type": "DeviceValueAggregationExtended",
+       "PeriodType": 2
+      },
+      "Abbreviation": "b"
+     }
+    ],
+    "OutputVariables": [
+     {
+      "$type": "FormulaDeviceVariable",
+      "DeviceId": 42,
+      "ValueLogType": 6,
+      "Abbreviation": "a"
+     }
+    ],
+    "EvaluationFormula": "a := b + 1",
+    "EvaluationMode": 1,
+    "EventDeviceId": 0
+   },
+   "Priorities": {
+    "41": 8,
+    "42": 0
+   }
+  },
+  "hex": "0807100c1a0c7a7a20746573742072756c65200d28013803622ce208290a0e082910011a05a2060010022201621207082a10062201611a0a61203a3d2062202b2031200128007a04082910087a04082a1000"
+ },
+ {
+  "name": "rule with switch parameters and actions",
+  "type": "TriggerModel",
+  "value": {
+   "$type": "TriggerModel",
+   "Id": 7,
+   "TriggerTypeId": 32,
+   "Name": "zz test rule",
+   "Version": 13,
+   "ChangesetId": 3,
+   "TriggerParameters": {
+    "$type": "SwitchTriggerParameters",
+    "InputDeviceId": 5,
+    "OnActions": [
+     {
+      "$type": "ActionModel",
+      "ActionType": 1,
+      "Parameters": {
+       "$type": "DeviceActionParameters",
+       "OperationMode": 1,
+       "ValueLogTypeValueRequests": [
+        {
+         "$type": "ValueLogTypeValueRequest",
+         "ActionType": 2,
+         "ValueLogType": 1,
+         "Parameters": {
+          "$type": "DeviceRequestParameters",
+          "DoubleParameters": {
+           "2": 0.5,
+           "6": 1500.0
+          },
+          "BoolParameters": {
+           "1": true,
+           "11": false
+          }
+         },
+         "ForceOneTimeOnly": true
+        }
+       ]
+      }
+     }
+    ],
+    "OffActions": [
+     {
+      "$type": "ActionModel",
+      "ActionType": 2,
+      "Parameters": {
+       "$type": "NotifyActionParameters",
+       "Silent": true,
+       "Title": "t",
+       "Message": "m",
+       "ReceiverGroupIds": [
+        1,
+        2
+       ],
+       "ReceiverUserIds": [
+        "00112233-4455-6677-8899-aabbccddeeff"
+       ]
+      }
+     }
+    ]
+   },
+   "Priorities": {
+    "41": 8,
+    "42": 0
+   }
+  },
+  "hex": "080710201a0c7a7a20746573742072756c65200d38036269da06660805123908011235a206320801122e080210011a260a0b080211000000000000e03f0a0b08061100000000007097401204080110011204080b100028011a2708021223aa062008011a017422016d380138024212093322110055447766118899aabbccddeeff7a04082910087a04082a1000"
+ },
+ {
+  "name": "rule with tuple map and timespans",
+  "type": "TriggerModel",
+  "value": {
+   "$type": "TriggerModel",
+   "Id": 7,
+   "TriggerTypeId": 33,
+   "Name": "zz test rule",
+   "Version": 13,
+   "IsEnabled": true,
+   "ChangesetId": 3,
+   "TriggerParameters": {
+    "$type": "TemperaturePIDTriggerParameters",
+    "SwitchOutputMap": {
+     "4": 300.0,
+     "5": 0.0
+    },
+    "ThermostatOutputMap": {
+     "3": [
+      0.5,
+      -1.0
+     ]
+    },
+    "Kp": 1.5,
+    "MinUpdateRate": 1.0,
+    "MaxUpdateRate": "Infinity"
+   },
+   "Priorities": {
+    "41": 8,
+    "42": 0
+   }
+  },
+  "hex": "080710211a0c7a7a20746573742072756c65200d280138036242e2063f120808041204080a10021204080512001a160803121209000000000000e03f11000000000000f0bf51000000000000f83f8a0104080210039201040802100f7a04082910087a04082a1000"
+ },
+ {
+  "name": "tombstone rule",
+  "type": "TriggerModel",
+  "value": {
+   "$type": "TriggerModel",
+   "Id": 9,
+   "TriggerTypeId": 12,
+   "Name": "old",
+   "Version": 13,
+   "IsDeleted": true
+  },
+  "hex": "0809100c1a036f6c64200d3001"
+ },
+ {
+  "name": "timespans",
+  "type": "TriggerParametersBase",
+  "value": {
+   "$type": "CountdownTimerTriggerParameters",
+   "TargetDeviceId": 0,
+   "TriggerDeviceIds": [
+    1
+   ],
+   "Timeout": 300.0,
+   "StartupDelay": 90.5
+  },
+  "hex": "ba0712080010011a04080a100222060888860b1004"
+ },
+ {
+  "name": "timespan small units",
+  "type": "TriggerParametersBase",
+  "value": {
+   "$type": "CountdownTimerTriggerParameters",
+   "Timeout": 0.0001,
+   "StartupDelay": 1e-07
+  },
+  "hex": "ba070d1a0508d00f1005220408021005"
+ },
+ {
+  "name": "timespan days and negative",
+  "type": "TriggerParametersBase",
+  "value": {
+   "$type": "CountdownTimerTriggerParameters",
+   "Timeout": 172800.0,
+   "StartupDelay": -3600.0
+  },
+  "hex": "ba070a1a020804220408011001"
+ },
+ {
+  "name": "timespan min and max",
+  "type": "TriggerParametersBase",
+  "value": {
+   "$type": "CountdownTimerTriggerParameters",
+   "Timeout": "-Infinity",
+   "StartupDelay": "Infinity"
+  },
+  "hex": "ba070c1a040801100f22040802100f"
+ },
+ {
+  "name": "timespan zero",
+  "type": "TriggerParametersBase",
+  "value": {
+   "$type": "CountdownTimerTriggerParameters",
+   "Timeout": 0.0
+  },
+  "hex": "ba07021a00"
+ },
+ {
+  "name": "log entry with tuples",
+  "type": "DeviceLogEntryBase",
+  "value": {
+   "$type": "ValueChangedDeviceLogEntry",
+   "Values": [
+    [
+     1,
+     0.5
+    ],
+    [
+     6,
+     21.0
+    ]
+   ],
+   "ChangeOriginId": 2
+  },
+  "hex": "a2061c0a0b080111000000000000e03f0a0b08061100000000000035401002"
+ },
+ {
+  "name": "doc example A",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGetBasicCorePropertiesRequest",
+   "RequestsId": 5
+  },
+  "hex": "f208000805",
+  "class": "MessageGetBasicCorePropertiesRequest",
+  "fields": {},
+  "requests_id": 5
+ },
+ {
+  "name": "doc example C ack",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageReceiveAcknowledgement",
+   "ReceivedMessagesStamps": [
+    8589934599,
+    12884901900
+   ]
+  },
+  "hex": "a2060c088780808020088c80808030",
+  "class": "MessageReceiveAcknowledgement",
+  "fields": {
+   "ReceivedMessagesStamps": [
+    8589934599,
+    12884901900
+   ]
+  },
+  "requests_id": 0
+ },
+ {
+  "name": "doc example D reconnect",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageReconnectRequest",
+   "LocationId": "00112233-4455-6677-8899-aabbccddeeff",
+   "Login": "admin",
+   "SessionId": "11111111-2222-3333-4444-555555555555",
+   "IsLocalAccount": true,
+   "Platform": "Android",
+   "ClientProtocolVersion": 89,
+   "RequestsId": 1
+  },
+  "hex": "f2063c0a12093322110055447766118899aabbccddeeff120561646d696e1a1209111111112222333311444455555555555520012a07416e64726f696458590801",
+  "class": "MessageReconnectRequest",
+  "fields": {
+   "LocationId": "00112233-4455-6677-8899-aabbccddeeff",
+   "Login": "admin",
+   "SessionId": "11111111-2222-3333-4444-555555555555",
+   "IsLocalAccount": true,
+   "Platform": "Android",
+   "ClientProtocolVersion": 89
+  },
+  "requests_id": 1
+ },
+ {
+  "name": "login request",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageLoginRequest",
+   "LocationId": "00112233-4455-6677-8899-aabbccddeeff",
+   "LoginOrEmail": "user",
+   "PasswordHashOrAuthorizationToken": "ab",
+   "IsLocalAccount": true
+  },
+  "hex": "e206200a12093322110055447766118899aabbccddeeff1204757365721a0261624801",
+  "class": "MessageLoginRequest",
+  "fields": {
+   "LocationId": "00112233-4455-6677-8899-aabbccddeeff",
+   "LoginOrEmail": "user",
+   "PasswordHashOrAuthorizationToken": "ab",
+   "IsLocalAccount": true
+  },
+  "requests_id": 0
+ },
+ {
+  "name": "negative RequestsId",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGetBasicCorePropertiesRequest",
+   "RequestsId": -1
+  },
+  "hex": "f2080008ffffffffffffffffff01",
+  "class": "MessageGetBasicCorePropertiesRequest",
+  "fields": {},
+  "requests_id": -1
+ },
+ {
+  "name": "generic response with every scalar parameter",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGenericResponse",
+   "ResponseFlagsId": 1,
+   "ErrorMessage": "Ok",
+   "ErrorCode": 1,
+   "ProtoParameters": [
+    {
+     "$type": "ProtoParameterString",
+     "GenericValue": "x"
+    },
+    {
+     "$type": "ProtoParameterString",
+     "GenericValue": ""
+    },
+    {
+     "$type": "ProtoParameterInt",
+     "GenericValue": -2
+    },
+    {
+     "$type": "ProtoParameterInt",
+     "GenericValue": 2147483647
+    },
+    {
+     "$type": "ProtoParameterLong",
+     "GenericValue": -9223372036854775808
+    },
+    {
+     "$type": "ProtoParameterLong",
+     "GenericValue": 9223372036854775807
+    },
+    {
+     "$type": "ProtoParameterDouble",
+     "GenericValue": -1.25
+    },
+    {
+     "$type": "ProtoParameterDouble",
+     "GenericValue": "NaN"
+    },
+    {
+     "$type": "ProtoParameterDouble",
+     "GenericValue": "-Infinity"
+    },
+    {
+     "$type": "ProtoParameterBool",
+     "GenericValue": true
+    },
+    {
+     "$type": "ProtoParameterGuid",
+     "GenericValue": "00112233-4455-6677-8899-aabbccddeeff"
+    },
+    {
+     "$type": "ProtoParameterUInt16",
+     "GenericValue": 65535
+    },
+    {
+     "$type": "ProtoParameterUInt32",
+     "GenericValue": 4294967295
+    },
+    {
+     "$type": "ProtoParameterULong",
+     "GenericValue": 18446744073709551615
+    },
+    {
+     "$type": "ProtoParameterFloat",
+     "GenericValue": 0.25
+    },
+    {
+     "$type": "ProtoParameterInt16",
+     "GenericValue": -3
+    },
+    {
+     "$type": "ProtoParameterUInt8",
+     "GenericValue": 255
+    },
+    {
+     "$type": "ProtoParameterInt8",
+     "GenericValue": -128
+    },
+    {
+     "$type": "ProtoParameterChar",
+     "GenericValue": 65
+    },
+    {
+     "$type": "ProtoParameterInt"
+    }
+   ],
+   "RequestsId": 9
+  },
+  "hex": "b206fd01080112024f6b18012206a206030a01782205a206020a00220eaa060b08feffffffffffffffff012209aa060608ffffffff07220eb2060b0880808080808080808001220db2060a08ffffffffffffffff7f220cba060909000000000000f4bf220cba060909000000000000f87f220cba060909000000000000f0ff2205c2060208012217da06140a12093322110055447766118899aabbccddeeff2207e2060408ffff032209ea060608ffffffff0f220ef2060b08ffffffffffffffffff012208fa06050d0000803e220e82070b08fdffffffffffffffff0122068a070308ff01220e92070b0880ffffffffffffffff0122059a070208412203aa06000809",
+  "class": "MessageGenericResponse",
+  "fields": {
+   "ResponseFlagsId": 1,
+   "ErrorMessage": "Ok",
+   "ErrorCode": 1,
+   "ProtoParameters": [
+    {
+     "$type": "ProtoParameterString",
+     "GenericValue": "x"
+    },
+    {
+     "$type": "ProtoParameterString",
+     "GenericValue": ""
+    },
+    {
+     "$type": "ProtoParameterInt",
+     "GenericValue": -2
+    },
+    {
+     "$type": "ProtoParameterInt",
+     "GenericValue": 2147483647
+    },
+    {
+     "$type": "ProtoParameterLong",
+     "GenericValue": -9223372036854775808
+    },
+    {
+     "$type": "ProtoParameterLong",
+     "GenericValue": 9223372036854775807
+    },
+    {
+     "$type": "ProtoParameterDouble",
+     "GenericValue": -1.25
+    },
+    {
+     "$type": "ProtoParameterDouble",
+     "GenericValue": "NaN"
+    },
+    {
+     "$type": "ProtoParameterDouble",
+     "GenericValue": "-Infinity"
+    },
+    {
+     "$type": "ProtoParameterBool",
+     "GenericValue": true
+    },
+    {
+     "$type": "ProtoParameterGuid",
+     "GenericValue": "00112233-4455-6677-8899-aabbccddeeff"
+    },
+    {
+     "$type": "ProtoParameterUInt16",
+     "GenericValue": 65535
+    },
+    {
+     "$type": "ProtoParameterUInt32",
+     "GenericValue": 4294967295
+    },
+    {
+     "$type": "ProtoParameterULong",
+     "GenericValue": 18446744073709551615
+    },
+    {
+     "$type": "ProtoParameterFloat",
+     "GenericValue": 0.25
+    },
+    {
+     "$type": "ProtoParameterInt16",
+     "GenericValue": -3
+    },
+    {
+     "$type": "ProtoParameterUInt8",
+     "GenericValue": 255
+    },
+    {
+     "$type": "ProtoParameterInt8",
+     "GenericValue": -128
+    },
+    {
+     "$type": "ProtoParameterChar",
+     "GenericValue": 65
+    },
+    {
+     "$type": "ProtoParameterInt",
+     "GenericValue": 0
+    }
+   ]
+  },
+  "requests_id": 9
+ },
+ {
+  "name": "reconnect response maps",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageReconnectResponse",
+   "ReconnectResultId": 1,
+   "SmartRulesChangesetId": "00000000-0000-0000-0000-000000000000",
+   "CurrentProtocolVersion": 89,
+   "UserGroupUserConnections": {
+    "7": [
+     "00112233-4455-6677-8899-aabbccddeeff",
+     "11111111-2222-3333-4444-555555555555"
+    ],
+    "8": []
+   },
+   "UserGroups": {
+    "1": "admins"
+   },
+   "CoreVersionString": "2025.1.1",
+   "GroupPermissionsForDashboards": {
+    "1": {
+     "00112233-4455-6677-8899-aabbccddeeff": 3
+    },
+    "2": {}
+   },
+   "SmartRules": [
+    "deadbeef",
+    ""
+   ],
+   "DbHash": "11111111-2222-3333-4444-555555555555",
+   "SmartRuleErrorStatuses": {
+    "4": -5
+   },
+   "RequestsId": 1
+  },
+  "hex": "fa06a10108013a0048599a012a08071212093322110055447766118899aabbccddeeff12120911111111222233331144445555555555559a01020808a2010a0801120661646d696e73e20108323032352e312e3192021a080112160a12093322110055447766118899aabbccddeeff100392020208029a0204deadbeef9a0200aa0212091111111122223333114444555555555555b2020d080410fbffffffffffffffff010801",
+  "class": "MessageReconnectResponse",
+  "fields": {
+   "ReconnectResultId": 1,
+   "CurrentProtocolVersion": 89,
+   "CoreVersionString": "2025.1.1",
+   "DbHash": "11111111-2222-3333-4444-555555555555",
+   "SmartRulesChangesetId": "00000000-0000-0000-0000-000000000000",
+   "UserGroupUserConnections": {
+    "7": [
+     "00112233-4455-6677-8899-aabbccddeeff",
+     "11111111-2222-3333-4444-555555555555"
+    ],
+    "8": []
+   },
+   "GroupPermissionsForDashboards": {
+    "1": {
+     "00112233-4455-6677-8899-aabbccddeeff": 3
+    },
+    "2": {}
+   },
+   "UserGroups": {
+    "1": "admins"
+   },
+   "SmartRules": [
+    "deadbeef",
+    ""
+   ],
+   "SmartRuleErrorStatuses": {
+    "4": -5
+   }
+  },
+  "requests_id": 1
+ },
+ {
+  "name": "access logs with dates",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGetAccessLogsRequest",
+   "DeviceId": 4,
+   "UserId": "00112233-4455-6677-8899-aabbccddeeff",
+   "FromUtc": "2025-03-04T05:06:07.1234567",
+   "ToUtc": "9999-12-31T23:59:59.9999999",
+   "RequestsId": 2
+  },
+  "hex": "d2152908041212093322110055447766118899aabbccddeeff1a0b088e8087dc89b9ed3d100522040802100f0802",
+  "class": "MessageGetAccessLogsRequest",
+  "fields": {
+   "DeviceId": 4,
+   "UserId": "00112233-4455-6677-8899-aabbccddeeff",
+   "FromUtc": "2025-03-04T05:06:07.1234567",
+   "ToUtc": "9999-12-31T23:59:59.9999999"
+  },
+  "requests_id": 2
+ },
+ {
+  "name": "dates at the edges",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGetAccessLogsRequest",
+   "UserId": "00000000-0000-0000-0000-000000000000",
+   "FromUtc": "0001-01-01T00:00:00.0000000",
+   "ToUtc": "1970-01-01T00:00:00.0000000",
+   "RequestsId": 3
+  },
+  "hex": "d2150a12001a040801100f22000803",
+  "class": "MessageGetAccessLogsRequest",
+  "fields": {
+   "UserId": "00000000-0000-0000-0000-000000000000",
+   "FromUtc": "0001-01-01T00:00:00.0000000",
+   "ToUtc": "1970-01-01T00:00:00.0000000"
+  },
+  "requests_id": 3
+ },
+ {
+  "name": "dates before 1970 and whole units",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGetAccessLogsRequest",
+   "FromUtc": "1969-12-31T23:59:59.5000000",
+   "ToUtc": "2026-01-01T00:00:00.0000000",
+   "RequestsId": 4
+  },
+  "hex": "d2150d1a0508e7071004220408ccbf020804",
+  "class": "MessageGetAccessLogsRequest",
+  "fields": {
+   "FromUtc": "1969-12-31T23:59:59.5000000",
+   "ToUtc": "2026-01-01T00:00:00.0000000"
+  },
+  "requests_id": 4
+ },
+ {
+  "name": "map with a null message value",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGetAffectingTriggersInfoResponse",
+   "Actions": {
+    "5": null,
+    "6": {
+     "$type": "AppAffectingTriggerInfo",
+     "TriggerId": 6
+    }
+   },
+   "RequestsId": 5
+  },
+  "hex": "ea150f0a0208050a0908061205aa060008060805",
+  "class": "MessageGetAffectingTriggersInfoResponse",
+  "fields": {
+   "Actions": {
+    "5": null,
+    "6": {
+     "TriggerId": 6
+    }
+   }
+  },
+  "requests_id": 5
+ },
+ {
+  "name": "unsigned and byte members",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGetModuleInfoResponse",
+   "ProtocolVersion": 200,
+   "RequestsId": 6
+  },
+  "hex": "920e0318c8010806",
+  "class": "MessageGetModuleInfoResponse",
+  "fields": {
+   "ProtocolVersion": 200
+  },
+  "requests_id": 6
+ },
+ {
+  "name": "value changed broadcast",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageDeviceValueChangedBroadcast",
+   "DeviceId": 3,
+   "ValueTypeId": 1,
+   "Value": 0.1,
+   "RequestsId": 7
+  },
+  "hex": "da060d08031001199a9999999999b93f0807",
+  "class": "MessageDeviceValueChangedBroadcast",
+  "fields": {
+   "DeviceId": 3,
+   "ValueTypeId": 1,
+   "Value": 0.1
+  },
+  "requests_id": 7
+ },
+ {
+  "name": "unknown fields preserved",
+  "type": "MessageBase",
+  "value": {
+   "$type": "MessageGetBasicCorePropertiesRequest",
+   "RequestsId": 5,
+   "$unknown": [
+    {
+     "tag": 25,
+     "wt": 0,
+     "hex": "01",
+     "in": "MessageBase"
+    },
+    {
+     "tag": 26,
+     "wt": 2,
+     "hex": "6162",
+     "in": "MessageBase"
+    }
+   ]
+  },
+  "hex": "f208000805c80101d201026162"
+ },
+ {
+  "name": "unknown field in a base class",
+  "type": "DeviceBase",
+  "value": {
+   "$type": "GenericDevice",
+   "CcuId": 3,
+   "$unknown": [
+    {
+     "tag": 127,
+     "wt": 0,
+     "hex": "01",
+     "in": "DeviceBase"
+    }
+   ]
+  },
+  "hex": "a206020803f80701"
+ }
+]

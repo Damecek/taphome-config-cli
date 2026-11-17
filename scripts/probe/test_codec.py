@@ -96,6 +96,27 @@ class CodecTests(unittest.TestCase):
                 for n in leaves(ts):
                     self.assertTrue(n in known or n.split(".")[-1] in c.types, "%s.%s: %s" % (t["name"], name, n))
 
+    def test_empty_packed_list_round_trips(self):
+        # DeviceValueAggregationExtended.HistorySubAggregationsHashCodes (tag 8) is packed; a live Core sends it empty
+        d = {"$type": "DeviceValueAggregationExtended", "HistorySubAggregationsHashCodes": []}
+        raw = codec.encode("DeviceValueAggregation", d)
+        self.assertIn(H("4200"), raw)
+        self.assertEqual(codec.decode("DeviceValueAggregation", raw), d)
+
+    def test_null_map_value_round_trips(self):
+        raw = codec.encode("MessageGetAffectingTriggersInfoResponse", {"Actions": {5: None}})
+        self.assertEqual(codec.decode("MessageGetAffectingTriggersInfoResponse", raw)["Actions"], {5: None})
+
+    def test_member_name_collision_rejected(self):
+        cat = {"messages": [], "types": [
+            {"name": "Base", "kind": "class", "members": [{"tag": 1, "name": "X", "type": "int"}],
+             "includes": [{"tag": 100, "type": "Sub"}]},
+            {"name": "Sub", "kind": "class", "members": [{"tag": 1, "name": "X", "type": "string"}]}]}
+        with self.assertRaises(codec.CodecError):
+            codec.Codec(cat)
+        cat["types"][1]["members"][0]["name"] = "Y"
+        codec.Codec(cat)
+
 
 if __name__ == "__main__":
     unittest.main()

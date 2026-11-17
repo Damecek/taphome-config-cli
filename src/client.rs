@@ -100,11 +100,23 @@ fn merge(base: Value, extra: Value) -> Value {
 
 async fn connect_ws(host: &str, path: &str, limit: Duration) -> Result<Ws> {
     // The reconnect response is several hundred kB: lift tungstenite's default 64 MiB and 16 MiB limits.
-    let config = WebSocketConfig::default().max_message_size(None).max_frame_size(None);
-    match timeout(limit, connect_async_with_config(format!("ws://{host}{path}"), Some(config), false)).await {
+    let config = WebSocketConfig::default()
+        .max_message_size(None)
+        .max_frame_size(None);
+    match timeout(
+        limit,
+        connect_async_with_config(format!("ws://{host}{path}"), Some(config), false),
+    )
+    .await
+    {
         Err(_) => Err(timed_out("connecting to the Core")),
-        Ok(Err(WsError::Url(_))) => Err(CliError::new("missing_config", "TAPHOME_HOST is not a valid host or host:port")),
-        Ok(Err(e)) => Err(connection_failed(format!("cannot connect to the Core: {e}"))),
+        Ok(Err(WsError::Url(_))) => Err(CliError::new(
+            "missing_config",
+            "TAPHOME_HOST is not a valid host or host:port",
+        )),
+        Ok(Err(e)) => Err(connection_failed(format!(
+            "cannot connect to the Core: {e}"
+        ))),
         Ok(Ok((ws, _))) => Ok(ws),
     }
 }
@@ -114,7 +126,9 @@ async fn next_binary(ws: &mut Ws) -> Result<Vec<u8>> {
     loop {
         match ws.next().await {
             Some(Ok(Message::Binary(data))) => return Ok(data.to_vec()),
-            Some(Ok(Message::Close(_))) | None => return Err(connection_failed("the Core closed the connection")),
+            Some(Ok(Message::Close(_))) | None => {
+                return Err(connection_failed("the Core closed the connection"))
+            }
             Some(Ok(_)) => {}
             Some(Err(e)) => return Err(connection_failed(format!("connection error: {e}"))),
         }
@@ -128,7 +142,8 @@ pub async fn identify(host: &str, timeouts: &Timeouts) -> Result<Value> {
         .await
         .map_err(|_| timed_out("the identify request"))??;
     let _ = ws.close(None).await;
-    codec::decode("LocationInfo", &data).map_err(|e| CliError::protocol(format!("undecodable identify frame: {e}")))
+    codec::decode("LocationInfo", &data)
+        .map_err(|e| CliError::protocol(format!("undecodable identify frame: {e}")))
 }
 
 /// Inner messages of a container, or the message itself.
@@ -146,13 +161,21 @@ fn unwrap_container(msg: Value) -> Result<Vec<Value>> {
                 .as_str()
                 .and_then(from_hex)
                 .ok_or_else(|| CliError::protocol("bad container element"))?;
-            codec::decode_message(&bytes).map_err(|e| CliError::protocol(format!("undecodable container element: {e}")))
+            codec::decode_message(&bytes)
+                .map_err(|e| CliError::protocol(format!("undecodable container element: {e}")))
         })
         .collect()
 }
 
 /// Login on a throwaway `/Core` socket. Returns the decoded `MessageLoginResponse`.
-pub async fn login(host: &str, location_id: &str, user: &str, password_hash: &str, device_id: &str, timeouts: &Timeouts) -> Result<Value> {
+pub async fn login(
+    host: &str,
+    location_id: &str,
+    user: &str,
+    password_hash: &str,
+    device_id: &str,
+    timeouts: &Timeouts,
+) -> Result<Value> {
     let fields = merge(
         json!({"LocationId": location_id, "LoginOrEmail": user.to_lowercase(),
                "PasswordHashOrAuthorizationToken": password_hash, "ServerClientDeviceId": 0, "IsLocalAccount": true}),
@@ -160,14 +183,16 @@ pub async fn login(host: &str, location_id: &str, user: &str, password_hash: &st
     );
     let exchange = async {
         let mut ws = connect_ws(host, "/Core", timeouts.connect).await?;
-        let frame = codec::encode_message("MessageLoginRequest", &fields, 0).map_err(|e| CliError::internal(e.to_string()))?;
+        let frame = codec::encode_message("MessageLoginRequest", &fields, 0)
+            .map_err(|e| CliError::internal(e.to_string()))?;
         ws.send(Message::Binary(frame.into()))
             .await
             .map_err(|e| connection_failed(format!("cannot send the login: {e}")))?;
         let mut others = 0;
         loop {
             let data = next_binary(&mut ws).await?;
-            let msg = codec::decode_message(&data).map_err(|e| CliError::protocol(format!("undecodable login frame: {e}")))?;
+            let msg = codec::decode_message(&data)
+                .map_err(|e| CliError::protocol(format!("undecodable login frame: {e}")))?;
             for m in unwrap_container(msg)? {
                 if m["$type"] == "MessageLoginResponse" {
                     let _ = ws.close(None).await;
@@ -176,11 +201,15 @@ pub async fn login(host: &str, location_id: &str, user: &str, password_hash: &st
                 others += 1;
             }
             if others > MAX_OTHER_LOGIN_MESSAGES {
-                return Err(CliError::protocol("no login response after 10 other messages"));
+                return Err(CliError::protocol(
+                    "no login response after 10 other messages",
+                ));
             }
         }
     };
-    timeout(timeouts.login, exchange).await.map_err(|_| timed_out("the login"))?
+    timeout(timeouts.login, exchange)
+        .await
+        .map_err(|_| timed_out("the login"))?
 }
 
 // ---------------------------------------------------------------- session
@@ -199,7 +228,9 @@ struct State {
 type Shared = Arc<Mutex<State>>;
 
 fn lock(shared: &Shared) -> std::sync::MutexGuard<'_, State> {
-    shared.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Marks the session closed and fails every pending request at once.
@@ -244,7 +275,9 @@ async fn read_loop(shared: Shared, writer: Writer, mut stream: SplitStream<Ws>) 
     let error = loop {
         let data = match stream.next().await {
             Some(Ok(Message::Binary(data))) => data,
-            Some(Ok(Message::Close(_))) | None => break connection_failed("the Core closed the connection"),
+            Some(Ok(Message::Close(_))) | None => {
+                break connection_failed("the Core closed the connection")
+            }
             Some(Ok(_)) => continue,
             Some(Err(e)) => break connection_failed(format!("connection error: {e}")),
         };
@@ -262,7 +295,10 @@ async fn read_loop(shared: Shared, writer: Writer, mut stream: SplitStream<Ws>) 
         }
     };
     close_with(&shared, error);
-    let _ = timeout(Duration::from_secs(1), async { writer.lock().await.close().await }).await;
+    let _ = timeout(Duration::from_secs(1), async {
+        writer.lock().await.close().await
+    })
+    .await;
 }
 
 async fn flush_acks(shared: &Shared, writer: &Writer) {
@@ -273,8 +309,16 @@ async fn flush_acks(shared: &Shared, writer: &Writer) {
         }
         std::mem::take(&mut st.to_ack)
     };
-    if let Ok(frame) = codec::encode_message("MessageReceiveAcknowledgement", &json!({"ReceivedMessagesStamps": stamps}), 0) {
-        let _ = writer.lock().await.send(Message::Binary(frame.into())).await;
+    if let Ok(frame) = codec::encode_message(
+        "MessageReceiveAcknowledgement",
+        &json!({"ReceivedMessagesStamps": stamps}),
+        0,
+    ) {
+        let _ = writer
+            .lock()
+            .await
+            .send(Message::Binary(frame.into()))
+            .await;
     }
 }
 
@@ -342,8 +386,12 @@ impl Session {
         if let Some(hash) = db_hash.filter(|h| !h.is_empty()) {
             fields["DbHash"] = json!(hash);
         }
-        session.reconnect = session.request("MessageReconnectRequest", &fields, opts.timeouts.reconnect).await?;
-        lock(&session.shared).protocol = session.reconnect["CurrentProtocolVersion"].as_i64().unwrap_or(0);
+        session.reconnect = session
+            .request("MessageReconnectRequest", &fields, opts.timeouts.reconnect)
+            .await?;
+        lock(&session.shared).protocol = session.reconnect["CurrentProtocolVersion"]
+            .as_i64()
+            .unwrap_or(0);
         Ok(session)
     }
 
@@ -356,14 +404,20 @@ impl Session {
                 return Err(e.clone());
             }
             let rid = st.next_id;
-            let frame =
-                codec::encode_message(class, fields, rid).map_err(|e| CliError::invalid_input(format!("cannot encode {class}: {e}")))?;
+            let frame = codec::encode_message(class, fields, rid)
+                .map_err(|e| CliError::invalid_input(format!("cannot encode {class}: {e}")))?;
             st.next_id += 1;
             let (tx, rx) = oneshot::channel();
             st.pending.insert(rid, tx);
             (rid, frame, rx)
         };
-        if let Err(e) = self.writer.lock().await.send(Message::Binary(frame.into())).await {
+        if let Err(e) = self
+            .writer
+            .lock()
+            .await
+            .send(Message::Binary(frame.into()))
+            .await
+        {
             let error = connection_failed(format!("cannot send the request: {e}"));
             close_with(&self.shared, error.clone());
             return Err(error);
@@ -406,7 +460,10 @@ impl Session {
     /// Flushes pending acknowledgements, sends a close frame and stops the background tasks.
     pub async fn close(self) {
         flush_acks(&self.shared, &self.writer).await;
-        let _ = timeout(Duration::from_secs(1), async { self.writer.lock().await.close().await }).await;
+        let _ = timeout(Duration::from_secs(1), async {
+            self.writer.lock().await.close().await
+        })
+        .await;
     }
 }
 

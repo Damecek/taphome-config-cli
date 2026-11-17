@@ -5,7 +5,12 @@ use serde_json::{json, Map, Value};
 pub const REDACTED: &str = "<redacted>";
 
 /// Redacted even with `--show-secrets`.
-const NEVER_SHOWN: [&str; 4] = ["PasswordHashOrAuthorizationToken", "SessionId", "NewPasswordHash", "PasswordHash"];
+const NEVER_SHOWN: [&str; 4] = [
+    "PasswordHashOrAuthorizationToken",
+    "SessionId",
+    "NewPasswordHash",
+    "PasswordHash",
+];
 /// Redacted unless `--show-secrets`.
 const SECRET_KEYS: [&str; 2] = ["AccessToken", "AuthorizationToken"];
 
@@ -47,7 +52,10 @@ fn is_secret_property(key: &str) -> bool {
 }
 
 fn is_empty(v: &Value) -> bool {
-    matches!(v, Value::Null) || v.as_str() == Some("") || v.as_i64() == Some(0) || v.as_bool() == Some(false)
+    matches!(v, Value::Null)
+        || v.as_str() == Some("")
+        || v.as_i64() == Some(0)
+        || v.as_bool() == Some(false)
 }
 
 impl Redactor {
@@ -64,21 +72,36 @@ impl Redactor {
                 }
                 Value::Object(out)
             }
-            Value::Array(items) => Value::Array(items.iter().map(|v| self.walk(v, in_property_map)).collect()),
-            Value::String(s) if self.values.iter().any(|secret| !secret.is_empty() && secret == s) => json!(REDACTED),
+            Value::Array(items) => Value::Array(
+                items
+                    .iter()
+                    .map(|v| self.walk(v, in_property_map))
+                    .collect(),
+            ),
+            Value::String(s)
+                if self
+                    .values
+                    .iter()
+                    .any(|secret| !secret.is_empty() && secret == s) =>
+            {
+                json!(REDACTED)
+            }
             other => other.clone(),
         }
     }
 
     fn entry(&self, key: &str, value: &Value, in_property_map: bool) -> Value {
         let hide = NEVER_SHOWN.contains(&key)
-            || (!self.show_secrets && (SECRET_KEYS.contains(&key) || (in_property_map && is_secret_property(key))));
+            || (!self.show_secrets
+                && (SECRET_KEYS.contains(&key) || (in_property_map && is_secret_property(key))));
         if hide && !is_empty(value) {
             return json!(REDACTED);
         }
         // A Packet Parser config travels as a JSON document inside a string.
         if key == "ConfigJson" {
-            let parsed = value.as_str().and_then(|s| serde_json::from_str::<Value>(s).ok());
+            let parsed = value
+                .as_str()
+                .and_then(|s| serde_json::from_str::<Value>(s).ok());
             if let Some(doc) = parsed.filter(|v| v.is_object() || v.is_array()) {
                 return json!(self.walk(&doc, false).to_string());
             }
@@ -118,12 +141,21 @@ mod tests {
         assert_eq!(hidden["AccessToken"], REDACTED);
         assert_eq!(hidden["Name"], "keep");
         assert_eq!(hidden["PasswordHash"], "");
-        assert_eq!(hidden["devices"][0]["DeviceProperties"]["Password"], REDACTED);
-        assert_eq!(hidden["devices"][0]["DeviceProperties"]["ApiToken"], REDACTED);
+        assert_eq!(
+            hidden["devices"][0]["DeviceProperties"]["Password"],
+            REDACTED
+        );
+        assert_eq!(
+            hidden["devices"][0]["DeviceProperties"]["ApiToken"],
+            REDACTED
+        );
         assert_eq!(hidden["devices"][0]["DeviceProperties"]["Port"], "80");
         assert_eq!(hidden["devices"][0]["DeviceProperties"]["Note"], REDACTED);
         let config: Value = serde_json::from_str(hidden["ConfigJson"].as_str().unwrap()).unwrap();
-        assert_eq!(config["Modules"][0]["DeviceProperties"]["Password"], REDACTED);
+        assert_eq!(
+            config["Modules"][0]["DeviceProperties"]["Password"],
+            REDACTED
+        );
         assert_eq!(config["Modules"][0]["DeviceProperties"]["User"], "u");
 
         let shown = redactor(true).redact(&doc);

@@ -19,7 +19,9 @@ pub async fn run(ctx: &Ctx, cmd: Cmd) -> Result<Value, CliError> {
     match cmd {
         Cmd::Login => {
             let outcome = core::login(ctx).await?;
-            Ok(json!({"user": outcome.session.user, "location": outcome.location["Name"], "session_stored": true}))
+            Ok(
+                json!({"user": outcome.session.user, "location": outcome.location["Name"], "session_stored": true}),
+            )
         }
         Cmd::Status => status(ctx).await,
         Cmd::Logout => Ok(json!({"session_removed": config::delete_session(&ctx.env)?})),
@@ -28,7 +30,11 @@ pub async fn run(ctx: &Ctx, cmd: Cmd) -> Result<Value, CliError> {
 
 async fn status(ctx: &Ctx) -> Result<Value, CliError> {
     let stored = config::load_session(&ctx.env);
-    let host = ctx.config.host.clone().or_else(|| stored.as_ref().map(|s| s.host.clone()));
+    let host = ctx
+        .config
+        .host
+        .clone()
+        .or_else(|| stored.as_ref().map(|s| s.host.clone()));
     let mut doc = json!({
         "stored": stored.is_some(), "valid": false, "core_version": null, "protocol": null,
         "user": stored.as_ref().map(|s| s.user.clone()),

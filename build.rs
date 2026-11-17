@@ -59,6 +59,7 @@ fn main() {
         );
     }
 
-    let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo")).join("salt.bin");
+    let out =
+        PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo")).join("salt.bin");
     fs::write(out, salt.unwrap_or_default()).expect("cannot write salt.bin");
 }
