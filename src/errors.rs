@@ -21,7 +21,8 @@ pub struct CliError {
     pub message: String,
     pub exit_code: i32,
     pub core_error_code: Option<i64>,
-    pub details: Value,
+    /// Boxed so `Result<_, CliError>` stays small (clippy::result_large_err).
+    pub details: Box<Value>,
 }
 
 pub type Result<T> = std::result::Result<T, CliError>;
@@ -47,12 +48,12 @@ impl CliError {
             message: message.into(),
             exit_code: default_exit(code),
             core_error_code: None,
-            details: json!({}),
+            details: Box::new(json!({})),
         }
     }
 
     pub fn with_details(mut self, details: Value) -> CliError {
-        self.details = details;
+        self.details = Box::new(details);
         self
     }
 

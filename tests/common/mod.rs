@@ -37,7 +37,7 @@
 //! UpdateMultipleDevicesProperties, DeleteDevice, HttpApiConfig, UpdateTriggerModels,
 //! DeleteTriggerModels, GetScriptLastRunValues, GetDeviceErrors, GetDeviceLog. Anything else gets
 //! ErrorCode 22 (RequestNotSupported).
-#![allow(dead_code)]
+#![allow(dead_code, clippy::result_large_err)] // the handshake callback signature is fixed by tungstenite
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{json, Map, Value};
@@ -73,7 +73,11 @@ pub struct Reply {
 
 impl Reply {
     pub fn new(class: &str, fields: Value) -> Reply {
-        Reply { class: class.to_string(), fields, broadcasts: vec![] }
+        Reply {
+            class: class.to_string(),
+            fields,
+            broadcasts: vec![],
+        }
     }
 
     pub fn with_broadcast(mut self, class: &str, fields: Value) -> Reply {
@@ -82,11 +86,17 @@ impl Reply {
     }
 
     pub fn ok() -> Reply {
-        Reply::new("MessageGenericResponse", json!({"ResponseFlagsId": 1, "ErrorMessage": "Ok", "ErrorCode": 1}))
+        Reply::new(
+            "MessageGenericResponse",
+            json!({"ResponseFlagsId": 1, "ErrorMessage": "Ok", "ErrorCode": 1}),
+        )
     }
 
     pub fn error(code: i64, text: &str) -> Reply {
-        Reply::new("MessageGenericResponse", json!({"ResponseFlagsId": 2, "ErrorMessage": text, "ErrorCode": code}))
+        Reply::new(
+            "MessageGenericResponse",
+            json!({"ResponseFlagsId": 2, "ErrorMessage": text, "ErrorCode": code}),
+        )
     }
 }
 
@@ -127,7 +137,15 @@ fn rule_model(id: i64, name: &str, enabled: bool) -> Value {
                "EvaluationFormula": "Va"}})
 }
 
-fn device(id: i64, name: &str, model: &str, interface: &str, ccu: i64, parent: i64, props: Value) -> Value {
+fn device(
+    id: i64,
+    name: &str,
+    model: &str,
+    interface: &str,
+    ccu: i64,
+    parent: i64,
+    props: Value,
+) -> Value {
     json!({"ID": id, "Name": name, "Model": model, "Interface": interface, "CcuId": ccu, "HardwareParentId": parent,
            "SerialNumber": format!("TEST-{id}"), "DeviceProperties": props})
 }
@@ -146,12 +164,51 @@ impl CoreState {
                        "CcuProperties": {"ApiToken": "ccu-token-value"}}),
             ],
             devices: vec![
-                device(10, "Test lamp", "VirtualSwitch", "Switch", 1, 0, json!({"IconId": "1"})),
-                device(11, "Test variable", "VirtualVariableGeneral", "Variable", 1, 0, json!({"IsReadOnly": "False"})),
-                device(12, "Test thermometer", "VirtualTemperatureSensor", "TemperatureSensor", 1, 0, json!({})),
-                device(20, "Parser module", "PacketParserModuleHttp", "IHardwareParentModule", 2, 0, json!({"IpAddress": "192.0.2.1", "Port": "80"})),
-                device(21, "Parser child", "PacketParserVariable", "Variable", 2, 20,
-                       json!({"Password": "child-secret-value", "ReadStateScriptPacketParser": "7"})),
+                device(
+                    10,
+                    "Test lamp",
+                    "VirtualSwitch",
+                    "Switch",
+                    1,
+                    0,
+                    json!({"IconId": "1"}),
+                ),
+                device(
+                    11,
+                    "Test variable",
+                    "VirtualVariableGeneral",
+                    "Variable",
+                    1,
+                    0,
+                    json!({"IsReadOnly": "False"}),
+                ),
+                device(
+                    12,
+                    "Test thermometer",
+                    "VirtualTemperatureSensor",
+                    "TemperatureSensor",
+                    1,
+                    0,
+                    json!({}),
+                ),
+                device(
+                    20,
+                    "Parser module",
+                    "PacketParserModuleHttp",
+                    "IHardwareParentModule",
+                    2,
+                    0,
+                    json!({"IpAddress": "192.0.2.1", "Port": "80"}),
+                ),
+                device(
+                    21,
+                    "Parser child",
+                    "PacketParserVariable",
+                    "Variable",
+                    2,
+                    20,
+                    json!({"Password": "child-secret-value", "ReadStateScriptPacketParser": "7"}),
+                ),
             ],
             rules: vec![
                 rule_model(1, "Test rule A", true),
@@ -177,7 +234,9 @@ impl CoreState {
     }
 
     fn free_device_id(&self) -> i64 {
-        (100..).find(|id| !self.devices.iter().any(|d| d["ID"] == *id)).unwrap()
+        (100..)
+            .find(|id| !self.devices.iter().any(|d| d["ID"] == *id))
+            .unwrap()
     }
 
     fn device_index(&self, id: i64) -> Option<usize> {
@@ -185,7 +244,10 @@ impl CoreState {
     }
 
     fn device_list_broadcast(&self) -> (String, Value) {
-        ("MessageDeviceListUpdatedBroadcast".to_string(), json!({"Ccus": self.ccus, "Devices": self.devices}))
+        (
+            "MessageDeviceListUpdatedBroadcast".to_string(),
+            json!({"Ccus": self.ccus, "Devices": self.devices}),
+        )
     }
 
     fn rule_hex(model: &Value) -> String {
@@ -239,15 +301,27 @@ impl CoreState {
                     d["DeviceProperties"] = json!({});
                 }
                 self.devices.push(d.clone());
-                Reply::new("MessageAddDeviceResponse", json!({"Ccus": self.ccus, "AddedDevice": d}))
-                    .with_broadcast("MessageDeviceListUpdatedBroadcast", json!({"Ccus": self.ccus, "Devices": self.devices}))
+                Reply::new(
+                    "MessageAddDeviceResponse",
+                    json!({"Ccus": self.ccus, "AddedDevice": d}),
+                )
+                .with_broadcast(
+                    "MessageDeviceListUpdatedBroadcast",
+                    json!({"Ccus": self.ccus, "Devices": self.devices}),
+                )
             }
             "MessageUpdateMultipleDevicesPropertiesRequest" => {
-                let ids: Vec<i64> = req["DeviceIds"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
+                let ids: Vec<i64> = req["DeviceIds"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(Value::as_i64).collect())
+                    .unwrap_or_default();
                 if ids.is_empty() || ids.iter().any(|id| self.device_index(*id).is_none()) {
                     return Reply::error(6, "device does not exist");
                 }
-                let props = req["DeviceProperties"].as_object().cloned().unwrap_or_default();
+                let props = req["DeviceProperties"]
+                    .as_object()
+                    .cloned()
+                    .unwrap_or_default();
                 let mut reply = Reply::ok();
                 for id in ids {
                     let i = self.device_index(id).unwrap();
@@ -258,20 +332,28 @@ impl CoreState {
                             self.devices[i]["DeviceProperties"][k] = v.clone();
                         }
                     }
-                    reply = reply.with_broadcast("MessageDeviceUpdatedBroadcast", json!({"Device": self.devices[i]}));
+                    reply = reply.with_broadcast(
+                        "MessageDeviceUpdatedBroadcast",
+                        json!({"Device": self.devices[i]}),
+                    );
                 }
                 reply
             }
             "MessageDeleteDeviceRequest" => {
                 let id = req["DeviceId"].as_i64().unwrap_or(0);
-                let Some(i) = self.device_index(id) else { return Reply::error(6, "device does not exist") };
+                let Some(i) = self.device_index(id) else {
+                    return Reply::error(6, "device does not exist");
+                };
                 let has_children = self.devices.iter().any(|d| d["HardwareParentId"] == id);
                 if has_children && req["ForceDelete"] != true {
                     return Reply::error(7, "delete the children first");
                 }
                 self.devices.remove(i);
                 self.devices.retain(|d| d["HardwareParentId"] != id);
-                Reply::ok().with_broadcast("MessageDeviceListUpdatedBroadcast", json!({"Ccus": self.ccus, "Devices": self.devices}))
+                Reply::ok().with_broadcast(
+                    "MessageDeviceListUpdatedBroadcast",
+                    json!({"Ccus": self.ccus, "Devices": self.devices}),
+                )
             }
             "MessageHttpApiConfigRequest" => self.http_api_config(req),
             "MessageUpdateTriggerModelsRequest" => {
@@ -284,11 +366,22 @@ impl CoreState {
                     let existing = if id == 0 {
                         // The Core reuses a tombstone id before it allocates a new one.
                         let reuse = self.rules.iter().position(|r| r["IsDeleted"] == true);
-                        let next = self.rules.iter().filter_map(|r| r["Id"].as_i64()).max().unwrap_or(0) + 1;
-                        model["Id"] = json!(reuse.map_or(next, |i| self.rules[i]["Id"].as_i64().unwrap()));
+                        let next = self
+                            .rules
+                            .iter()
+                            .filter_map(|r| r["Id"].as_i64())
+                            .max()
+                            .unwrap_or(0)
+                            + 1;
+                        model["Id"] =
+                            json!(reuse.map_or(next, |i| self.rules[i]["Id"].as_i64().unwrap()));
                         reuse
                     } else {
-                        match self.rules.iter().position(|r| r["Id"] == id && r["IsDeleted"] != true) {
+                        match self
+                            .rules
+                            .iter()
+                            .position(|r| r["Id"] == id && r["IsDeleted"] != true)
+                        {
                             Some(i) => Some(i),
                             None => return Reply::error(6, "rule does not exist"),
                         }
@@ -305,9 +398,16 @@ impl CoreState {
                 )
             }
             "MessageDeleteTriggerModelsRequest" => {
-                let ids: Vec<i64> = req["TriggerIds"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
+                let ids: Vec<i64> = req["TriggerIds"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(Value::as_i64).collect())
+                    .unwrap_or_default();
                 for id in &ids {
-                    if !self.rules.iter().any(|r| r["Id"] == *id && r["IsDeleted"] != true) {
+                    if !self
+                        .rules
+                        .iter()
+                        .any(|r| r["Id"] == *id && r["IsDeleted"] != true)
+                    {
                         return Reply::error(6, "rule does not exist");
                     }
                 }
@@ -340,9 +440,15 @@ impl CoreState {
                     return Reply::error(6, "device does not exist");
                 }
                 if class == "MessageGetDeviceErrorsRequest" {
-                    Reply::new("MessageGetDeviceErrorsResponse", json!({"DeviceErrors": []}))
+                    Reply::new(
+                        "MessageGetDeviceErrorsResponse",
+                        json!({"DeviceErrors": []}),
+                    )
                 } else {
-                    Reply::new("MessageGetDeviceLogResponse", json!({"ValueChangedLogEntries": []}))
+                    Reply::new(
+                        "MessageGetDeviceLogResponse",
+                        json!({"ValueChangedLogEntries": []}),
+                    )
                 }
             }
             _ => Reply::error(22, "request not supported by the fake Core"),
@@ -354,7 +460,8 @@ impl CoreState {
         if !self.ccus.iter().any(|c| c["CcuId"] == ccu) {
             return Reply::error(6, "interface does not exist");
         }
-        let Ok(config) = serde_json::from_str::<Value>(req["ConfigJson"].as_str().unwrap_or("")) else {
+        let Ok(config) = serde_json::from_str::<Value>(req["ConfigJson"].as_str().unwrap_or(""))
+        else {
             return Reply::error(15, "ConfigJson does not parse");
         };
         let mut added = vec![];
@@ -388,8 +495,14 @@ impl CoreState {
                 added.push(c);
             }
         }
-        Reply::new("MessageHttpApiConfigResponse", json!({"CcuId": ccu, "AddedDevices": added}))
-            .with_broadcast("MessageDeviceListUpdatedBroadcast", json!({"Ccus": self.ccus, "Devices": self.devices}))
+        Reply::new(
+            "MessageHttpApiConfigResponse",
+            json!({"CcuId": ccu, "AddedDevices": added}),
+        )
+        .with_broadcast(
+            "MessageDeviceListUpdatedBroadcast",
+            json!({"Ccus": self.ccus, "Devices": self.devices}),
+        )
     }
 }
 
@@ -398,7 +511,8 @@ impl CoreState {
 const GARBAGE: [u8; 12] = [0xff; 12];
 
 fn frame(class: &str, fields: &Value, rid: i64) -> Vec<u8> {
-    codec::encode_message(class, fields, rid).unwrap_or_else(|e| panic!("fake Core cannot encode {class}: {e}"))
+    codec::encode_message(class, fields, rid)
+        .unwrap_or_else(|e| panic!("fake Core cannot encode {class}: {e}"))
 }
 
 type Shared = Arc<Mutex<CoreState>>;
@@ -406,11 +520,16 @@ type Shared = Arc<Mutex<CoreState>>;
 /// Frames to send for one received frame, in order.
 fn handle_frame(state: &Shared, bus: &broadcast::Sender<Vec<u8>>, data: &[u8]) -> Vec<Vec<u8>> {
     let mut st = state.lock().unwrap();
-    let Ok(msg) = codec::decode_message(data) else { return vec![] };
+    let Ok(msg) = codec::decode_message(data) else {
+        return vec![];
+    };
     let class = msg["$type"].as_str().unwrap_or_default().to_string();
     let rid = msg["RequestsId"].as_i64().unwrap_or(0);
     if class == "MessageReceiveAcknowledgement" {
-        let stamps: Vec<i64> = msg["ReceivedMessagesStamps"].as_array().map(|a| a.iter().filter_map(Value::as_i64).collect()).unwrap_or_default();
+        let stamps: Vec<i64> = msg["ReceivedMessagesStamps"]
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_i64).collect())
+            .unwrap_or_default();
         st.acks.extend(stamps);
         return vec![];
     }
@@ -419,7 +538,11 @@ fn handle_frame(state: &Shared, bus: &broadcast::Sender<Vec<u8>>, data: &[u8]) -
     if rid != 0 {
         // The Core acknowledges each request before it answers.
         let stamp = (1i64 << 32) | rid;
-        out.push(frame("MessageReceiveAcknowledgement", &json!({"ReceivedMessagesStamps": [stamp]}), 1000 + rid));
+        out.push(frame(
+            "MessageReceiveAcknowledgement",
+            &json!({"ReceivedMessagesStamps": [stamp]}),
+            1000 + rid,
+        ));
     }
     let handshake = class == "MessageLoginRequest" || class == "MessageReconnectRequest";
     if !handshake {
@@ -448,13 +571,17 @@ fn handle_frame(state: &Shared, bus: &broadcast::Sender<Vec<u8>>, data: &[u8]) -
                 let session = st.next_guid();
                 st.sessions.insert(session.clone());
                 fields["SessionId"] = json!(session);
-                fields["UserInfo"] = json!({"Id": guid(7), "Login": USER_LOGIN, "IsLocalAccount": true});
-                fields["LocationInfo"] = json!({"LocationId": LOCATION_ID, "Name": st.location_name});
+                fields["UserInfo"] =
+                    json!({"Id": guid(7), "Login": USER_LOGIN, "IsLocalAccount": true});
+                fields["LocationInfo"] =
+                    json!({"LocationId": LOCATION_ID, "Name": st.location_name});
             }
             Reply::new("MessageLoginResponse", fields)
         }
         "MessageReconnectRequest" => {
-            let known = st.sessions.contains(msg["SessionId"].as_str().unwrap_or_default());
+            let known = st
+                .sessions
+                .contains(msg["SessionId"].as_str().unwrap_or_default());
             let offered = msg["DbHash"].as_str().unwrap_or_default();
             let fields = if !known {
                 json!({"ReconnectResultId": 2})
@@ -466,7 +593,8 @@ fn handle_frame(state: &Shared, bus: &broadcast::Sender<Vec<u8>>, data: &[u8]) -
             Reply::new("MessageReconnectResponse", fields)
         }
         _ => {
-            let is_write = catalog::operation(&class).is_some_and(|o| matches!(o.kind.as_str(), "write" | "action"));
+            let is_write = catalog::operation(&class)
+                .is_some_and(|o| matches!(o.kind.as_str(), "write" | "action"));
             if let Some((code, text)) = st.fail_next.take() {
                 Reply::error(code, &text)
             } else if is_write && st.drop_next_write {
@@ -491,7 +619,9 @@ async fn serve(stream: TcpStream, state: Shared, bus: broadcast::Sender<Vec<u8>>
         *seen.lock().unwrap() = req.uri().path().to_string();
         Ok(resp)
     };
-    let Ok(ws) = tokio_tungstenite::accept_hdr_async(stream, callback).await else { return };
+    let Ok(ws) = tokio_tungstenite::accept_hdr_async(stream, callback).await else {
+        return;
+    };
     let (mut sink, mut stream) = ws.split();
     let path = path.lock().unwrap().clone();
     if path == "/Identify" {
@@ -552,7 +682,10 @@ impl FakeCore {
         let (stop, stopped) = oneshot::channel();
         let (st, tx) = (state.clone(), bus.clone());
         let thread = std::thread::spawn(move || {
-            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
             rt.block_on(async move {
                 let listener = TcpListener::from_std(listener).unwrap();
                 tokio::pin!(stopped);
@@ -568,8 +701,19 @@ impl FakeCore {
                 }
             });
         });
-        let root = std::env::temp_dir().join(format!("taphome-test-{}-{}", std::process::id(), NEXT_ROOT.fetch_add(1, Ordering::SeqCst)));
-        FakeCore { addr, state, bus, root, stop: Some(stop), thread: Some(thread) }
+        let root = std::env::temp_dir().join(format!(
+            "taphome-test-{}-{}",
+            std::process::id(),
+            NEXT_ROOT.fetch_add(1, Ordering::SeqCst)
+        ));
+        FakeCore {
+            addr,
+            state,
+            bus,
+            root,
+            stop: Some(stop),
+            thread: Some(thread),
+        }
     }
 
     pub fn host(&self) -> String {
@@ -604,7 +748,11 @@ impl FakeCore {
         f(&mut self.state.lock().unwrap())
     }
 
-    pub fn on(&self, class: &str, handler: impl Fn(&mut CoreState, &Value) -> Reply + Send + Sync + 'static) {
+    pub fn on(
+        &self,
+        class: &str,
+        handler: impl Fn(&mut CoreState, &Value) -> Reply + Send + Sync + 'static,
+    ) {
         self.with_state(|s| s.handlers.insert(class.to_string(), Arc::new(handler)));
     }
 
@@ -637,7 +785,13 @@ impl FakeCore {
     }
 
     pub fn writes(&self) -> Vec<String> {
-        self.requests().into_iter().filter(|c| catalog::operation(c).is_some_and(|o| matches!(o.kind.as_str(), "write" | "action"))).collect()
+        self.requests()
+            .into_iter()
+            .filter(|c| !c.ends_with("LoginRequest") && !c.ends_with("ReconnectRequest"))
+            .filter(|c| {
+                catalog::operation(c).is_some_and(|o| matches!(o.kind.as_str(), "write" | "action"))
+            })
+            .collect()
     }
 
     pub fn clear_requests(&self) {
@@ -680,7 +834,11 @@ pub fn run_cli(core: &FakeCore, args: &[&str]) -> (i32, Value) {
 }
 
 /// An override `("NAME", None)` removes the variable.
-pub fn run_cli_with(core: &FakeCore, args: &[&str], overrides: &[(&str, Option<&str>)]) -> (i32, Value) {
+pub fn run_cli_with(
+    core: &FakeCore,
+    args: &[&str],
+    overrides: &[(&str, Option<&str>)],
+) -> (i32, Value) {
     let mut env = core.env();
     for (name, value) in overrides {
         match value {
@@ -702,5 +860,32 @@ pub fn error(doc: &Value) -> &Value {
 }
 
 pub fn object(pairs: &[(&str, Value)]) -> Value {
-    Value::Object(pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect::<Map<_, _>>())
+    Value::Object(
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
+            .collect::<Map<_, _>>(),
+    )
+}
+
+pub fn block<F: std::future::Future>(f: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(f)
+}
+
+/// The stored session file as JSON (host, location_id, user, session_id, db_hash).
+pub fn stored_session(core: &FakeCore) -> Value {
+    serde_json::from_slice(
+        &std::fs::read(core.config_dir().join("session.json")).expect("session.json"),
+    )
+    .unwrap()
+}
+
+#[cfg(unix)]
+pub fn mode(path: &std::path::Path) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).unwrap().permissions().mode() & 0o777
 }
