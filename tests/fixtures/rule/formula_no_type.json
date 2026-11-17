@@ -1,0 +1,9 @@
+{
+  "TriggerTypeId": 12,
+  "Name": "TEST no type",
+  "IsEnabled": false,
+  "TriggerParameters": {
+    "InputVariables": [{"DeviceId": 11, "ValueLogType": 62, "Abbreviation": "Va"}],
+    "EvaluationFormula": "Va"
+  }
+}

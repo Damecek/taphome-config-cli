@@ -1,0 +1,12 @@
+{
+  "Id": 0,
+  "TriggerTypeId": 12,
+  "Name": "TEST fixture formula",
+  "IsEnabled": false,
+  "TriggerParameters": {
+    "$type": "FormulaTriggerParameters",
+    "InputVariables": [{"DeviceId": 11, "ValueLogType": 62, "Abbreviation": "Va"}],
+    "OutputVariables": [{"DeviceId": 11, "ValueLogType": 62}],
+    "EvaluationFormula": "Va"
+  }
+}
