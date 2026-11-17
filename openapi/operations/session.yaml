@@ -55,7 +55,8 @@
     ReconnectResultId: 0 None, 1 Ok, 2 WrongSession (log in again), 3 TooManyConnections, 4 FaultyStorageClient (client cache is invalid, drop it), 5 RemoteAccessDisabled, 6 AppTooOld, 7 NotReady (Core still starting, retry after 10 s), 8 WrongLocationId.
     Sessions have no expiry field and no refresh message. There is no logout message, the client just closes the socket and forgets the SessionId.
     After success the client sends MessageReceiveAcknowledgement every 4 s and a WebSocket ping every 6 s.
-    A reconnect with an unknown SessionId may return WrongSession together with CurrentProtocolVersion, which would be a cheap pre-auth version probe (not tested).
+    A reconnect with an unknown SessionId returns WrongSession without CurrentProtocolVersion or CoreVersionString (tested on Core 2025.2.32396), so the Core version cannot be read before login.
+    A client without a cached DbHash gets FaultyStorageClient (4) together with the current DbHash and must send the reconnect request again with that DbHash. The second response has ReconnectResultId 1 and the complete configuration.
   minProtocolVersion: 0
   evidence:
   - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SendReconnect'

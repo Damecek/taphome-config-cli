@@ -13,6 +13,55 @@
 getCoreStatusPage:
   verified: true
   date: 2026-11-17
-  core: "unknown"
-  protocol: null
+  core: "2025.2.32396"
+  protocol: 89
   note: "returns HTML status page with location name, uptime, local time"
+
+# Live read-only verification, 2026-11-17 (see work/notes/07-live-read.md)
+identifyCore: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "bare LocationInfo frame from /Identify decoded cleanly; AccessToken is masked"}
+login: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "LoginResultId 1 on a throwaway /Core socket; SessionId returned"}
+reconnect: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "fresh client first gets ReconnectResultId 4 with a DbHash, then 1 when it reconnects with that DbHash; full sync decodes with no unknown fields"}
+receiveAcknowledgement: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "Core acks every request with MessageReceiveAcknowledgement before the response; the ack carries a non-zero Core-side RequestsId; client acks every 4 s keep the session up"}
+getBasicCoreProperties: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns a list of named properties (Name plus ProtoValue string or uint32); about 20 entries"}
+getSlaveInterfaces: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "one interface (type id 10, matches TapHomeApi: Parameter1 token, Parameter2 JSON config)"}
+getSlaveInterface: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns the SlaveInterface for an existing id"}
+getSlaveInterfaceDevices: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns exposed devices with SerializedParameters hex"}
+getUsersList: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns users; TUtc timestamps are .NET ticks; some optional fields absent"}
+getUserManagementLog: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns log entries (Id, WhomUserId, Action, PerformedOnTUtc, Note)"}
+getDefaultGroupPermissionsForDevices: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getDefaultGroupPermissionsForSmartRules: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "same response as getDefaultGroupPermissionsForTriggers"}
+getGroupPermissionsForDashboard: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getGroupPermissionsForDevice: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getGroupPermissionsGeneral: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getGroupPermissionsForSmartRule: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getUserPermissionsForDashboard: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getUserPermissionsForDashboards: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getUserPermissionsForDevice: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getUserPermissionsForDevices: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getUserPermissionsGeneral: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getUserPermissionsForSmartRule: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getUserPermissionsForSmartRules: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response (no rows defined or nothing to report), field layout not exercised"}
+getDataExportProfiles: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response for an empty ProfileIds list; no profiles exist"}
+getMediaList: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns MediaIds plus TotalSpace and UsedSpace"}
+getScriptLastRunValues: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "answers with the echoed LastRunId and no values for a Packet Parser device; script key names and value layout not exercised"}
+getSmartRuleErrors: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response for a trigger without errors (ShouldSubscribe false)"}
+getAffectingSmartRules: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "Actions map of TriggerId to AppAffectingTriggerInfo (TriggerId, Status)"}
+getWeekPlans: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns the default week plan; ValidToTUtc is DateTime.MaxValue ticks"}
+getWeekPlanProperties: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns weekday time windows (WeekDay bit mask, EndTime in seconds)"}
+getWeekPlanDateRanges: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "same request and response as getWeekPlanDateRange; empty"}
+getDateRanges: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response for an empty id list"}
+getAvailableInterfacePorts: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns JSON text in AvailableCcuPorts"}
+getUsedTcpPorts: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns JSON text in UsedPorts"}
+getModuleInfo: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns hardware revision, software version, protocol, architecture, port and communication statistics JSON for a TapHome Bus module; answered within 0.4 s including session setup"}
+getAllModulesInfo: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns DeviceIds and one statistics JSON per module for the TapHome Bus CCU"}
+getDeviceLog: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns value-change entries with a TapHomeTime field; ShouldSubscribe false and true both answer with the same log"}
+getDeviceErrors: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "empty response for a healthy device"}
+getServiceActions: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns action and attribute definitions for a Packet Parser device and a bus module; empty for a CCU"}
+getServiceAttributeValues: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns the string value of one runtime attribute with Result OK"}
+getValueHistory: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "returns a binary Container (hex) for an instant query; an aggregated 1 h average query returned no Container"}
+broadcastDeviceValueChanged: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "MessageDeviceValueChangedBroadcast arrives without any subscription; also MessageDeviceAggregatedValueChangedBroadcast (not listed in the manifest)"}
+tapHomeApiLocationInfo: {verified: false, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "the Core sent no response within 60 s on a normal client session (tunnel-only message)"}
+tapHomeApiDiscovery: {verified: false, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "the Core sent no response within 60 s on a normal client session (tunnel-only message)"}
+tapHomeApiGetDeviceValue: {verified: false, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "the Core sent no response within 60 s on a normal client session (tunnel-only message)"}
+tapHomeApiGetMultipleDeviceValues: {verified: false, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "the Core sent no response within 60 s on a normal client session (tunnel-only message)"}
+broadcastDeviceAggregatedValueChanged: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "arrives without any subscription, about one every 2 s; decoded cleanly"}

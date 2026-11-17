@@ -122,8 +122,8 @@ paths:
       x-verification:
         verified: true
         date: 2026-11-17
-        core: unknown
-        protocol: null
+        core: 2025.2.32396
+        protocol: 89
         note: returns HTML status page with location name, uptime, local time
   /Core:
     get:
@@ -2256,7 +2256,14 @@ paths:
       x-evidence:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceValueHistoryData'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns a binary Container (hex) for an instant query; an aggregated 1 h average query returned no
+          Container
   /Core/messages/MessageExecuteNowDataExportProfileRequest:
     post:
       operationId: executeNowDataExportProfile
@@ -2409,7 +2416,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceActions'
       - 'TapHome.Android: TapHome.Commons.CommonHelpers.AffectingTriggerInfoManager'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: Actions map of TriggerId to AppAffectingTriggerInfo (TriggerId, Status)
   /Core/messages/MessageGetAllModulesInfoRequest:
     post:
       operationId: getAllModulesInfo
@@ -2448,7 +2461,13 @@ paths:
       x-evidence:
       - 'TapHome.Android: TapHome.Commons.CommonPages.DeviceScanerPage.GetAllModulesInfo'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns DeviceIds and one statistics JSON per module for the TapHome Bus CCU
   /Core/messages/MessageGetAvailableCcuPortsRequest:
     post:
       operationId: getAvailableInterfacePorts
@@ -2485,7 +2504,13 @@ paths:
       x-evidence:
       - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.GetAvailableTerminals'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns JSON text in AvailableCcuPorts
   /Core/messages/MessageGetAvailableServiceAttributesAndActionsRequest:
     post:
       operationId: getServiceActions
@@ -2523,7 +2548,14 @@ paths:
       x-evidence:
       - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ServiceInfoCommunicationHelper.GetServiceActions'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns action and attribute definitions for a Packet Parser device and a bus module; empty for a
+          CCU
   /Core/messages/MessageGetBasicCorePropertiesRequest:
     post:
       operationId: getBasicCoreProperties
@@ -2560,7 +2592,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetCoreProperties'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetBasicCorePropertiesRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns a list of named properties (Name plus ProtoValue string or uint32); about 20 entries
   /Core/messages/MessageGetCloneCoreResultRequest:
     post:
       operationId: getCloneCoreResult
@@ -2667,7 +2705,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDataExportProfiles'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDataExportProfilesRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response for an empty ProfileIds list; no profiles exist
   /Core/messages/MessageGetDateRangesRequest:
     post:
       operationId: getDateRanges
@@ -2708,7 +2752,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDateRanges'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDateRangesRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response for an empty id list
   /Core/messages/MessageGetDefaultGroupPermissionsForDevicesRequest:
     post:
       operationId: getDefaultGroupPermissionsForDevices
@@ -2744,7 +2794,13 @@ paths:
       x-evidence:
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDefaultGroupPermissionsForDevicesRequest'
       x-confidence: inferred
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetDefaultGroupPermissionsForTriggersRequest:
     post:
       operationId: getDefaultGroupPermissionsForSmartRules
@@ -2786,7 +2842,13 @@ paths:
       - 'TapHome.Core.Lib.Model: MessageGetDefaultGroupPermissionsForTriggersRequest'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDefaultGroupPermissionsForTriggersRequest'
       x-confidence: inferred
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: same response as getDefaultGroupPermissionsForTriggers
       x-variants:
       - id: getDefaultGroupPermissionsForSmartRules
         summary: Read default group permissions that apply to smart rules by trigger type.
@@ -2838,7 +2900,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceErrors / SendDeviceErrorsSubscribeBroadcastRequest'
       - 'TapHome.Core.Lib.Model: GenericDevice (IsInError, ErrorCount ...)'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response for a healthy device
   /Core/messages/MessageGetDeviceLogRequest:
     post:
       operationId: getDeviceLog
@@ -2879,7 +2947,14 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceLog / SendDeviceLogSubscribeBroadcastRequest'
       - 'TapHome.Android: TapHome.Commons.BaseSubscribedBroadcast (5000 ms renew)'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns value-change entries with a TapHomeTime field; ShouldSubscribe false and true both answer
+          with the same log
   /Core/messages/MessageGetGroupPermissionsForDashboardRequest:
     post:
       operationId: getGroupPermissionsForDashboard
@@ -2915,7 +2990,13 @@ paths:
       x-evidence:
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetGroupPermissionsForDashboardRequest'
       x-confidence: inferred
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetGroupPermissionsForDeviceRequest:
     post:
       operationId: getGroupPermissionsForDevice
@@ -2951,7 +3032,13 @@ paths:
       x-evidence:
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetGroupPermissionsForDeviceRequest'
       x-confidence: inferred
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetGroupPermissionsForTriggerRequest:
     post:
       operationId: getGroupPermissionsForSmartRule
@@ -2993,7 +3080,13 @@ paths:
       - 'TapHome.Core.Lib.Model: MessageGetGroupPermissionsForTriggerRequest'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetGroupPermissionsForTriggerRequest'
       x-confidence: inferred
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
       x-variants:
       - id: getGroupPermissionsForSmartRule
         summary: Read per-user-group permissions for one smart rule.
@@ -3038,7 +3131,13 @@ paths:
       x-evidence:
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetGroupPermissionsGeneralRequest'
       x-confidence: inferred
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetMediaListRequest:
     post:
       operationId: getMediaList
@@ -3075,7 +3174,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetAllMediaIds'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetMediaListRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns MediaIds plus TotalSpace and UsedSpace
   /Core/messages/MessageGetModuleDiagnosticsDataRequest:
     post:
       operationId: getModuleDiagnosticsData
@@ -3157,7 +3262,14 @@ paths:
       x-evidence:
       - 'TapHome.Android: TapHome.Commons.CommonPages.TapHomeBusModuleConfigurationPage.UpdateModuleInfo / HandleGetModuleInfo'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns hardware revision, software version, protocol, architecture, port and communication statistics
+          JSON for a TapHome Bus module; answered within 0.4 s including session setup
   /Core/messages/MessageGetModulesBoardHwRevisionRequest:
     post:
       operationId: getModulesHwRevision
@@ -3270,7 +3382,14 @@ paths:
       - 'TapHome.Android: TapHome.Commons.CommonPages.FormulaSmartRulePage.CreateScriptElement (LastRunId with ObjectIdType.Smartrule)'
       - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Formulas.Script.CaptureLastRunValues'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: answers with the echoed LastRunId and no values for a Packet Parser device; script key names and value
+          layout not exercised
   /Core/messages/MessageGetServiceAttributeValuesRequest:
     post:
       operationId: getServiceAttributeValues
@@ -3307,7 +3426,13 @@ paths:
       x-evidence:
       - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ServiceInfoCommunicationHelper.GetServiceRuntimeAttributes'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns the string value of one runtime attribute with Result OK
   /Core/messages/MessageGetSlaveInterfaceDevicesRequest:
     post:
       operationId: getSlaveInterfaceDevices
@@ -3344,7 +3469,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetSlaveInterfaceDevices'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetSlaveInterfaceDevicesRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns exposed devices with SerializedParameters hex
   /Core/messages/MessageGetSlaveInterfaceRequest:
     post:
       operationId: getSlaveInterface
@@ -3381,7 +3512,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetSlaveInterface'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetSlaveInterfaceRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns the SlaveInterface for an existing id
   /Core/messages/MessageGetSlaveInterfacesRequest:
     post:
       operationId: getSlaveInterfaces
@@ -3418,7 +3555,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetSlaveInterfaces'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetSlaveInterfacesRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: 'one interface (type id 10, matches TapHomeApi: Parameter1 token, Parameter2 JSON config)'
   /Core/messages/MessageGetStoredDataExportProfileResultRequest:
     post:
       operationId: getStoredDataExportProfileResult
@@ -3498,7 +3641,13 @@ paths:
       - 'TapHome.Android: TapHome.Commons.CommonHelpers.SmartRuleErrorsManager'
       - 'TapHome.Android: TapHome.Commons.CommonPages.SmartRulePage`1.CreateSmartRuleErrorsSection'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response for a trigger without errors (ShouldSubscribe false)
   /Core/messages/MessageGetUsedTcpPortsRequest:
     post:
       operationId: getUsedTcpPorts
@@ -3535,7 +3684,13 @@ paths:
       x-evidence:
       - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.GetUsedTcpPorts'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns JSON text in UsedPorts
   /Core/messages/MessageGetUserManagementLogRequest:
     post:
       operationId: getUserManagementLog
@@ -3572,7 +3727,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserManagementLog'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserManagementLogRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns log entries (Id, WhomUserId, Action, PerformedOnTUtc, Note)
   /Core/messages/MessageGetUserPermissionsForDashboardRequest:
     post:
       operationId: getUserPermissionsForDashboard
@@ -3609,7 +3770,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForDashboard'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForDashboardRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetUserPermissionsForDashboardsRequest:
     post:
       operationId: getUserPermissionsForDashboards
@@ -3646,7 +3813,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForDashboards'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForDashboardsRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetUserPermissionsForDeviceRequest:
     post:
       operationId: getUserPermissionsForDevice
@@ -3683,7 +3856,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForDevice'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForDeviceRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetUserPermissionsForDevicesRequest:
     post:
       operationId: getUserPermissionsForDevices
@@ -3720,7 +3899,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForDevices'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForDevicesRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetUserPermissionsForTriggerRequest:
     post:
       operationId: getUserPermissionsForSmartRule
@@ -3762,7 +3947,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForTrigger'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForTriggerRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
       x-variants:
       - id: getUserPermissionsForSmartRule
         summary: Read per-user permissions for one smart rule.
@@ -3816,7 +4007,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForTriggers'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForTriggersRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
       x-variants:
       - id: getUserPermissionsForSmartRules
         summary: Read per-user permissions for several smart rules at once.
@@ -3862,7 +4059,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsGeneral'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsGeneralRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: empty response (no rows defined or nothing to report), field layout not exercised
   /Core/messages/MessageGetUsersListRequest:
     post:
       operationId: getUsersList
@@ -3898,7 +4101,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUsers'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUsersListRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns users; TUtc timestamps are .NET ticks; some optional fields absent
   /Core/messages/MessageGetWeekPlanDateRangeRequest:
     post:
       operationId: getWeekPlanDateRanges
@@ -3941,7 +4150,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetWeekPlanDateRanges'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetWeekPlanDateRangeRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: same request and response as getWeekPlanDateRange; empty
       x-variants:
       - id: getWeekPlanDateRanges
         summary: Read the date ranges that include or exclude each week plan.
@@ -3988,7 +4203,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetWeekPlanProperties'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetWeekPlanProperties'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns weekday time windows (WeekDay bit mask, EndTime in seconds)
   /Core/messages/MessageGetWeekPlansAndCardsRequest:
     post:
       operationId: getWeekPlansAndCards
@@ -4066,7 +4287,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetWeekPlans'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetWeekPlansRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: returns the default week plan; ValidToTUtc is DateTime.MaxValue ticks
   /Core/messages/MessageHttpApiConfigRequest:
     post:
       operationId: addPacketParserModule
@@ -4351,7 +4578,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnect'
       - 'TapHome.Core.Lib.Model: MessageLoginResponse, MessageReconnectResponse'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: LoginResultId 1 on a throwaway /Core socket; SessionId returned
       x-variants:
       - id: login
         summary: Log in with a Core-local account (or a cloud account) and receive a SessionId.
@@ -4688,7 +4921,14 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AckTimerTick'
       - 'TapHome.Core.Lib.Model: MessageReceiveAcknowledgement'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: Core acks every request with MessageReceiveAcknowledgement before the response; the ack carries a
+          non-zero Core-side RequestsId; client acks every 4 s keep the session up
   /Core/messages/MessageReconnectRequest:
     post:
       operationId: reconnect
@@ -4705,7 +4945,8 @@ paths:
         ReconnectResultId: 0 None, 1 Ok, 2 WrongSession (log in again), 3 TooManyConnections, 4 FaultyStorageClient (client cache is invalid, drop it), 5 RemoteAccessDisabled, 6 AppTooOld, 7 NotReady (Core still starting, retry after 10 s), 8 WrongLocationId.
         Sessions have no expiry field and no refresh message. There is no logout message, the client just closes the socket and forgets the SessionId.
         After success the client sends MessageReceiveAcknowledgement every 4 s and a WebSocket ping every 6 s.
-        A reconnect with an unknown SessionId may return WrongSession together with CurrentProtocolVersion, which would be a cheap pre-auth version probe (not tested).
+        A reconnect with an unknown SessionId returns WrongSession without CurrentProtocolVersion or CoreVersionString (tested on Core 2025.2.32396), so the Core version cannot be read before login.
+        A client without a cached DbHash gets FaultyStorageClient (4) together with the current DbHash and must send the reconnect request again with that DbHash. The second response has ReconnectResultId 1 and the complete configuration.
 
         This message is used for several purposes. Variants:
         - `reconnect`: Present the SessionId on a new /Core socket and receive the initial sync (devices, interfaces, permissions, dashboards, smart rules, Core properties).
@@ -4740,7 +4981,14 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnectResultNotOK'
       - 'TapHome.Core.Lib.Model: MessageReconnectRequest, MessageReconnectResponse'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: fresh client first gets ReconnectResultId 4 with a DbHash, then 1 when it reconnects with that DbHash;
+          full sync decodes with no unknown fields
       x-variants:
       - id: reconnect
         summary: Present the SessionId on a new /Core socket and receive the initial sync (devices, interfaces,
@@ -4753,7 +5001,8 @@ paths:
           ReconnectResultId: 0 None, 1 Ok, 2 WrongSession (log in again), 3 TooManyConnections, 4 FaultyStorageClient (client cache is invalid, drop it), 5 RemoteAccessDisabled, 6 AppTooOld, 7 NotReady (Core still starting, retry after 10 s), 8 WrongLocationId.
           Sessions have no expiry field and no refresh message. There is no logout message, the client just closes the socket and forgets the SessionId.
           After success the client sends MessageReceiveAcknowledgement every 4 s and a WebSocket ping every 6 s.
-          A reconnect with an unknown SessionId may return WrongSession together with CurrentProtocolVersion, which would be a cheap pre-auth version probe (not tested).
+          A reconnect with an unknown SessionId returns WrongSession without CurrentProtocolVersion or CoreVersionString (tested on Core 2025.2.32396), so the Core version cannot be read before login.
+          A client without a cached DbHash gets FaultyStorageClient (4) together with the current DbHash and must send the reconnect request again with that DbHash. The second response has ReconnectResultId 1 and the complete configuration.
       - id: listSmartRules
         summary: Load all smart rules (triggers), per-type schema versions and error statuses as part of the session
           handshake.
@@ -7727,7 +7976,13 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.IdentifyClient.IdentifyCore'
       - 'TapHome.Android: TapHome.Commons.CommunicationHelper.LocationCommunicationHelper.IdentifyLocation'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: bare LocationInfo frame from /Identify decoded cleanly; AccessToken is masked
   /SetUp:
     get:
       operationId: wsSetUp
@@ -9071,7 +9326,13 @@ webhooks:
       x-triggered-by: []
       x-evidence: []
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: arrives without any subscription, about one every 2 s; decoded cleanly
   MessageDeviceErrorsSubscribedBroadcast:
     post:
       operationId: broadcastDeviceErrorsSubscribed
@@ -9393,9 +9654,16 @@ webhooks:
       - 'TapHome.Android: TapHome.Commons.CommonPages.ServiceSettingsPage2 (blind actions)'
       - 'TapHome.Core.Lib.Model: MessageTapHomeApiSetDeviceValueRequest, MessageTapHomeApiGetMultipleDeviceValuesRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
       x-operation-ids:
       - deviceValueChanged
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: MessageDeviceValueChangedBroadcast arrives without any subscription; also MessageDeviceAggregatedValueChangedBroadcast
+          (not listed in the manifest)
   MessageDevicesScanStatusBroadcast:
     post:
       operationId: broadcastDevicesScanStatus
@@ -25263,6 +25531,13 @@ x-taphome:
       tag (x-proto-include-tag). The field holds the message own fields. A client must write that field before field
       1 (RequestsId), because the Core reader needs the subtype to create the instance. Deeper hierarchies nest
       one more level per inheritance step.
+    hierarchyRule: Every class hierarchy is serialized from its root base class, also when a field is declared with
+      a derived type. Example, confirmed on a live Core, a GenericDevice inside a list is written as the DeviceBase
+      fields at the top level plus the GenericDevice own fields nested under include tag 100 (see x-proto-includes
+      on the base schema). The nested subtype field comes first, the base fields follow.
+    initialSync: A client without a cached DbHash sends MessageReconnectRequest with an empty DbHash and gets ReconnectResultId
+      4 (FaultyStorageClient) together with the current DbHash. It reconnects with that DbHash and then receives
+      ReconnectResultId 1 with the complete configuration in one message. Confirmed on a live Core.
     requestsId: MessageBase field 1, int32 varint, written only when non-zero. The client keeps one counter per
       socket and numbers requests 1, 2, 3 and so on (the reconnect request is 1). A response, or a progress message,
       carries the RequestsId of its request. The login request uses 0.

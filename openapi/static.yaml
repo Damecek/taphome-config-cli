@@ -136,6 +136,14 @@ x-taphome:
       tag (x-proto-include-tag). The field holds the message own fields. A client must write that field before field
       1 (RequestsId), because the Core reader needs the subtype to create the instance. Deeper hierarchies nest
       one more level per inheritance step.
+    hierarchyRule: Every class hierarchy is serialized from its root base class, also when a field is declared with
+      a derived type. Example, confirmed on a live Core, a GenericDevice inside a list is written as the DeviceBase
+      fields at the top level plus the GenericDevice own fields nested under include tag 100 (see x-proto-includes
+      on the base schema). The nested subtype field comes first, the base fields follow.
+    initialSync: A client without a cached DbHash sends MessageReconnectRequest with an empty DbHash and gets
+      ReconnectResultId 4 (FaultyStorageClient) together with the current DbHash. It reconnects with that DbHash
+      and then receives ReconnectResultId 1 with the complete configuration in one message. Confirmed on a live
+      Core.
     requestsId: MessageBase field 1, int32 varint, written only when non-zero. The client keeps one counter per
       socket and numbers requests 1, 2, 3 and so on (the reconnect request is 1). A response, or a progress message,
       carries the RequestsId of its request. The login request uses 0.
