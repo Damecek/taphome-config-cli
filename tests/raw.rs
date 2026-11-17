@@ -299,3 +299,48 @@ fn broadcasts_are_collected_for_the_wait_window() {
         1
     );
 }
+
+#[test]
+fn class_without_registry_entry_needs_both_switches_and_sends_nothing() {
+    let core = FakeCore::start();
+    let class = "MessageAlexaSetDeviceRequest";
+    let (code, doc) = run_cli(&core, &["raw", "call", class]);
+    assert_eq!(
+        (code, error(&doc)["code"].clone()),
+        (7, json!("write_not_allowed"))
+    );
+    let (code, doc) = run_cli(&core, &["raw", "call", class, "--allow-write"]);
+    assert_eq!(
+        (code, error(&doc)["code"].clone()),
+        (7, json!("unverified_operation"))
+    );
+    let (code, doc) = run_cli(&core, &["raw", "call", class, "--allow-unverified"]);
+    assert_eq!(
+        (code, error(&doc)["code"].clone()),
+        (7, json!("write_not_allowed"))
+    );
+    assert!(core.requests().is_empty(), "nothing was sent");
+}
+
+#[test]
+fn dry_run_redacts_the_message_fields_like_the_frame() {
+    let core = FakeCore::start();
+    let (code, doc) = run_cli(
+        &core,
+        &[
+            "raw",
+            "call",
+            "MessageLoginRequest",
+            "--json",
+            r#"{"LoginOrEmail": "u", "PasswordHashOrAuthorizationToken": "tok-123"}"#,
+            "--dry-run",
+        ],
+    );
+    assert_eq!(code, 0, "{doc}");
+    let d = data(&doc);
+    assert_eq!(
+        d["message"]["fields"]["PasswordHashOrAuthorizationToken"],
+        "<redacted>"
+    );
+    assert!(!doc.to_string().contains("tok-123"));
+}

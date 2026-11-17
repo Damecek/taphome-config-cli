@@ -47,6 +47,7 @@ pub struct OpsArgs {
     /// read, subscribe, write or action
     #[arg(long)]
     kind: Option<String>,
+    /// Only operations verified (true) or not verified (false) against a real Core
     #[arg(long, value_name = "true|false")]
     verified: Option<bool>,
 }
@@ -105,12 +106,13 @@ async fn call(ctx: &Ctx, args: CallArgs) -> Result<Value, CliError> {
         return Ok(
             json!({"dry_run": true, "operation": op.and_then(|o| o.ids.first()), "verified": verified,
                          "kind": op.map(|o| o.kind.as_str()),
-                         "message": {"class": class, "fields": fields}, "diff": null,
+                         "message": {"class": class, "fields": shown}, "diff": null,
                          "frame_hex": frame_hex(class, &shown, 2)?, "frame_redacted": shown != fields}),
         );
     }
 
-    if is_write && op.is_some() && !args.allow_write {
+    // a class without a registry entry counts as a write, since nothing says it only reads
+    if is_write && !args.allow_write {
         return Err(CliError::new(
             "write_not_allowed",
             format!("{class} changes the Core: pass --allow-write to send it"),

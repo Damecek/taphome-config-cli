@@ -1,5 +1,6 @@
 //! `taphome io values | errors | log | watch`: read-only checks of inputs, outputs and device errors.
 use crate::catalog;
+use crate::commands::glob_match;
 use crate::core::{open_session, request, Ctx, Snapshot};
 use crate::errors::CliError;
 use clap::{Args, Subcommand};
@@ -22,7 +23,7 @@ pub enum Cmd {
 pub struct ValuesArgs {
     /// Device ids or exact names. All devices when omitted
     devices: Vec<String>,
-    /// Model glob, for example 'Virtual*'
+    /// Model pattern, `*` matches any text and `?` one character, case-insensitive, for example 'Virtual*'
     #[arg(long)]
     model: Option<String>,
     /// Name substring
@@ -32,6 +33,7 @@ pub struct ValuesArgs {
 
 #[derive(Args)]
 pub struct ErrorsArgs {
+    /// Device id or exact name
     device: String,
     /// 0 device, 1 module, 2 interface, 3 core. Default: 1 for module devices, else 0
     #[arg(long)]
@@ -40,6 +42,7 @@ pub struct ErrorsArgs {
 
 #[derive(Args)]
 pub struct LogArgs {
+    /// Device id or exact name
     device: String,
     /// Keep the newest N entries
     #[arg(long, default_value_t = 50)]
@@ -158,16 +161,6 @@ fn current_values(device: &Value) -> Vec<Value> {
     entries.into_iter().map(|(_, e)| e).collect()
 }
 
-/// `*` and `?` wildcards, whole-string match.
-fn glob(pattern: &[u8], text: &[u8]) -> bool {
-    match pattern.split_first() {
-        None => text.is_empty(),
-        Some((b'*', rest)) => (0..=text.len()).any(|i| glob(rest, &text[i..])),
-        Some((b'?', rest)) => !text.is_empty() && glob(rest, &text[1..]),
-        Some((c, rest)) => text.first() == Some(c) && glob(rest, &text[1..]),
-    }
-}
-
 // ---------------------------------------------------------------- commands
 
 async fn values(ctx: &Ctx, args: ValuesArgs) -> Result<Value, CliError> {
@@ -189,10 +182,7 @@ async fn values(ctx: &Ctx, args: ValuesArgs) -> Result<Value, CliError> {
             d["Model"].as_str().unwrap_or_default(),
         );
         if (!wanted.is_empty() && !wanted.contains(&id))
-            || args
-                .model
-                .as_ref()
-                .is_some_and(|g| !glob(g.as_bytes(), model.as_bytes()))
+            || args.model.as_ref().is_some_and(|g| !glob_match(g, model))
             || args
                 .name
                 .as_ref()
@@ -332,8 +322,9 @@ async fn watch(ctx: &Ctx, args: WatchArgs) -> Result<Value, CliError> {
     let mut counts: Map<String, Value> = Map::new();
     let mut changes = vec![];
     loop {
-        let all = session.broadcasts();
-        for b in &all[seen.min(all.len())..] {
+        let fresh = session.broadcasts_since(seen);
+        seen += fresh.len();
+        for b in &fresh {
             let class = b["$type"].as_str().unwrap_or_default();
             let n = counts.get(class).and_then(Value::as_i64).unwrap_or(0);
             counts.insert(class.to_string(), json!(n + 1));
@@ -352,7 +343,6 @@ async fn watch(ctx: &Ctx, args: WatchArgs) -> Result<Value, CliError> {
             change["received_at"] = json!(now_iso());
             changes.push(change);
         }
-        seen = all.len();
         let left = deadline.saturating_duration_since(Instant::now());
         if left.is_zero() {
             break;
@@ -374,11 +364,5 @@ mod tests {
     fn taphome_time_to_iso() {
         assert_eq!(th_iso(0), "2016-01-01T00:00:00Z");
         assert_eq!(th_iso(343_340_580), "2026-11-17T20:23:00Z");
-    }
-
-    #[test]
-    fn globs() {
-        assert!(glob(b"Virtual*", b"VirtualSwitch"));
-        assert!(!glob(b"Virtual?", b"VirtualSwitch"));
     }
 }

@@ -99,10 +99,12 @@ fn merge(base: Value, extra: Value) -> Value {
 }
 
 async fn connect_ws(host: &str, path: &str, limit: Duration) -> Result<Ws> {
-    // The reconnect response is several hundred kB: lift tungstenite's default 64 MiB and 16 MiB limits.
+    // The reconnect response is several hundred kB: allow far more than tungstenite's 16 MiB frame default,
+    // but keep a finite bound so a broken peer cannot make the CLI allocate without limit.
+    const MAX_WS_BYTES: usize = 64 * 1024 * 1024;
     let config = WebSocketConfig::default()
-        .max_message_size(None)
-        .max_frame_size(None);
+        .max_message_size(Some(MAX_WS_BYTES))
+        .max_frame_size(Some(MAX_WS_BYTES));
     match timeout(
         limit,
         connect_async_with_config(format!("ws://{host}{path}"), Some(config), false),
@@ -457,6 +459,15 @@ impl Session {
     /// Broadcasts received so far, in arrival order.
     pub fn broadcasts(&self) -> Vec<Value> {
         lock(&self.shared).broadcasts.clone()
+    }
+
+    /// Broadcasts from index `from` on, so a poller copies only the new ones.
+    pub fn broadcasts_since(&self, from: usize) -> Vec<Value> {
+        lock(&self.shared)
+            .broadcasts
+            .get(from..)
+            .unwrap_or_default()
+            .to_vec()
     }
 
     /// Responses nobody waited for (acknowledgements, late answers, progress messages).

@@ -24,6 +24,12 @@
 //!   `"-Infinity"` (TimeSpan.MaxValue / MinValue are `"Infinity"` / `"-Infinity"`). Encode accepts those strings.
 //! * Encode is strict: a key that is not a member of the type chain (other than `$type`, `$unknown`, `$errors`)
 //!   is an error, and values must have the member's JSON type (integer, bool, number, string, object, array).
+//!   An integer outside its declared type's range (`int` i32, `short` i16, `sbyte` i8, `long` i64, `byte` u8,
+//!   `ushort` and `char` u16, `uint` u32, `ulong` u64, enums i32) is an error. So are a tuple array longer than
+//!   the tuple, an `$unknown` entry whose `"in"` is not in the type chain, and a non-empty `$errors` (the value
+//!   was decoded lossily, so re-encoding would drop data).
+//! * Decode never panics on corrupt data: lengths use checked arithmetic, a varint is at most 10 bytes and
+//!   messages nest at most 100 levels deep. A field that exceeds the limit lands in `$errors`.
 //! * An `$unknown` entry without `"in"` is written once, at the concrete class level.
 //! * `$errors` messages are Rust texts, not Python exception texts.
 
@@ -125,6 +131,9 @@ fn read_varint(b: &[u8], mut i: usize) -> Result<(u64, usize)> {
             return Ok((n, i));
         }
         shift += 7;
+        if shift >= 70 {
+            return err("varint is longer than 10 bytes");
+        }
     }
 }
 
@@ -183,7 +192,7 @@ fn read_fields(b: &[u8]) -> Result<Vec<Field<'_>>> {
             }
             1 | 5 => {
                 let n = if wt == 1 { 8 } else { 4 };
-                if i + n > b.len() {
+                if n > b.len() - i {
                     return err("truncated fixed field");
                 }
                 let raw = &b[i..i + n];
@@ -200,7 +209,7 @@ fn read_fields(b: &[u8]) -> Result<Vec<Field<'_>>> {
             2 => {
                 let (n, j) = read_varint(b, i)?;
                 i = j;
-                let n = usize::try_from(n).ok().filter(|n| i + n <= b.len());
+                let n = usize::try_from(n).ok().filter(|n| *n <= b.len() - i);
                 let Some(n) = n else {
                     return err("truncated length-delimited field");
                 };
@@ -508,6 +517,20 @@ fn enc_timespan(v: &Value) -> Result<Vec<u8>> {
 /// A codec bound to one catalog. The module-level functions use the embedded catalog.
 pub struct Codec<'a> {
     cat: &'a Catalog,
+    /// Current message nesting while decoding, bounded by `MAX_DEPTH`.
+    depth: std::cell::Cell<usize>,
+}
+
+/// Deepest message nesting the decoder accepts; real configs stay far below it.
+const MAX_DEPTH: usize = 100;
+
+/// The range of an integer type, enums count as `int`.
+fn int_range(ts: &str) -> (i128, i128) {
+    match (unsigned_bits(ts), signed_bits(ts)) {
+        (Some(b), _) => (0, (1i128 << b) - 1),
+        (_, Some(b)) => (-(1i128 << (b - 1)), (1i128 << (b - 1)) - 1),
+        _ => (i128::from(i32::MIN), i128::from(i32::MAX)),
+    }
 }
 
 fn as_int(v: &Value) -> Result<i128> {
@@ -536,7 +559,10 @@ fn key_string(k: &Value) -> Result<String> {
 
 impl<'a> Codec<'a> {
     pub fn new(cat: &'a Catalog) -> Self {
-        Codec { cat }
+        Codec {
+            cat,
+            depth: std::cell::Cell::new(0),
+        }
     }
 
     fn resolve(&self, name: &str) -> Result<&'a TypeDef> {
@@ -581,11 +607,29 @@ impl<'a> Codec<'a> {
                 return err(format!("{concrete} has no member {k:?}"));
             }
         }
+        match d.get("$errors") {
+            None | Some(Value::Null) => {}
+            Some(Value::Array(a)) if a.is_empty() => {}
+            Some(_) => {
+                return err(format!(
+                    "{concrete} carries $errors from a lossy decode; re-encoding would drop data"
+                ))
+            }
+        }
         let unknown = match d.get("$unknown") {
             None | Some(Value::Null) => &[][..],
             Some(Value::Array(a)) => a.as_slice(),
             Some(_) => return err("$unknown must be a list"),
         };
+        for u in unknown {
+            if let Some(t) = u.get("in").and_then(Value::as_str) {
+                if !chain.contains(&t) {
+                    return err(format!(
+                        "$unknown entry is in {t}, which is not in the chain of {concrete}"
+                    ));
+                }
+            }
+        }
         let mut body = Vec::new();
         for (level, tn) in chain.iter().enumerate() {
             let own = self.enc_members(tn, d, unknown, *tn == concrete)?;
@@ -716,6 +760,13 @@ impl<'a> Codec<'a> {
                 let Value::Array(items) = v else {
                     return err(format!("expected a list (tuple), got {v}"));
                 };
+                if items.len() > args.len() {
+                    return err(format!(
+                        "tuple has {} items, the type takes {}",
+                        items.len(),
+                        args.len()
+                    ));
+                }
                 let mut entry = Vec::new();
                 for (i, (a, x)) in args.iter().zip(items).enumerate() {
                     if !x.is_null() {
@@ -793,6 +844,10 @@ impl<'a> Codec<'a> {
             return Ok(());
         }
         let n = as_int(v)?;
+        let (lo, hi) = int_range(ts);
+        if n < lo || n > hi {
+            return err(format!("{n} is out of range for {ts} ({lo} to {hi})"));
+        }
         match wire {
             Wire::Fixed64 => {
                 let ok = if ts == "long" {
@@ -892,6 +947,18 @@ impl<'a> Codec<'a> {
     }
 
     fn decode_at(&self, type_name: &str, data: &[u8], from_root: bool) -> Result<Value> {
+        if self.depth.get() >= MAX_DEPTH {
+            return err(format!(
+                "messages are nested deeper than {MAX_DEPTH} levels"
+            ));
+        }
+        self.depth.set(self.depth.get() + 1);
+        let result = self.decode_level(type_name, data, from_root);
+        self.depth.set(self.depth.get() - 1);
+        result
+    }
+
+    fn decode_level(&self, type_name: &str, data: &[u8], from_root: bool) -> Result<Value> {
         let mut tdef = self.resolve(type_name)?;
         if from_root {
             // the wire starts at the root base class

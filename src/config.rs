@@ -27,20 +27,35 @@ impl fmt::Debug for Env {
 }
 
 /// `TAPHOME_CONFIG_DIR`, else `$HOME/.config/taphome` on unix, else `%APPDATA%\taphome` on Windows.
-fn default_config_dir(get: impl Fn(&str) -> Option<String>) -> PathBuf {
+/// None when none of them is set: there is no safe default, a relative directory would leak into the cwd.
+fn default_config_dir(get: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
     if let Some(dir) = get("TAPHOME_CONFIG_DIR").filter(|d| !d.is_empty()) {
-        return PathBuf::from(dir);
+        return Some(PathBuf::from(dir));
     }
     #[cfg(unix)]
-    let dir = get("HOME").map(|h| PathBuf::from(h).join(".config").join("taphome"));
+    let base = get("HOME").filter(|h| !h.is_empty());
     #[cfg(not(unix))]
-    let dir = get("APPDATA").map(|a| PathBuf::from(a).join("taphome"));
-    dir.unwrap_or_else(|| PathBuf::from(".taphome"))
+    let base = get("APPDATA").filter(|h| !h.is_empty());
+    #[cfg(unix)]
+    return base.map(|h| PathBuf::from(h).join(".config").join("taphome"));
+    #[cfg(not(unix))]
+    return base.map(|a| PathBuf::from(a).join("taphome"));
+}
+
+/// The config directory, or `missing_config` when the environment names none (the path is then empty).
+fn config_dir(env: &Env) -> Result<&Path> {
+    if env.config_dir.as_os_str().is_empty() {
+        return Err(CliError::new(
+            "missing_config",
+            "no config directory: set HOME (APPDATA on Windows) or TAPHOME_CONFIG_DIR",
+        ));
+    }
+    Ok(&env.config_dir)
 }
 
 impl Env {
     pub fn from_process() -> Env {
-        let config_dir = default_config_dir(|k| std::env::var(k).ok());
+        let config_dir = default_config_dir(|k| std::env::var(k).ok()).unwrap_or_default();
         let vars = std::env::vars()
             .filter(|(k, _)| k.starts_with("TAPHOME_"))
             .collect();
@@ -133,14 +148,13 @@ fn set_mode(_path: &Path, _mode: u32) -> std::io::Result<()> {
 /// Creates the config directory (mode 700 on unix).
 pub fn ensure_config_dir(env: &Env) -> Result<()> {
     // Only a directory this tool creates gets mode 700: TAPHOME_CONFIG_DIR may name a shared one.
-    let existed = env.config_dir.is_dir();
-    fs::create_dir_all(&env.config_dir)
-        .map_err(|e| io_error("cannot create the config directory", e))?;
+    let dir = config_dir(env)?;
+    let existed = dir.is_dir();
+    fs::create_dir_all(dir).map_err(|e| io_error("cannot create the config directory", e))?;
     if existed {
         return Ok(());
     }
-    set_mode(&env.config_dir, 0o700)
-        .map_err(|e| io_error("cannot restrict the config directory", e))
+    set_mode(dir, 0o700).map_err(|e| io_error("cannot restrict the config directory", e))
 }
 
 /// Writes a file with mode 600 (unix), atomically: temp file in the same directory, then rename.
@@ -175,24 +189,24 @@ pub struct StoredSession {
     pub db_hash: Option<String>,
 }
 
-fn session_path(env: &Env) -> PathBuf {
-    env.config_dir.join("session.json")
+fn session_path(env: &Env) -> Result<PathBuf> {
+    Ok(config_dir(env)?.join("session.json"))
 }
 
 /// A missing or unreadable session file counts as no session.
 pub fn load_session(env: &Env) -> Option<StoredSession> {
-    serde_json::from_slice(&fs::read(session_path(env)).ok()?).ok()
+    serde_json::from_slice(&fs::read(session_path(env).ok()?).ok()?).ok()
 }
 
 pub fn save_session(env: &Env, session: &StoredSession) -> Result<()> {
     ensure_config_dir(env)?;
     let bytes = serde_json::to_vec(session).map_err(|e| CliError::internal(e.to_string()))?;
-    write_private(&session_path(env), &bytes)
+    write_private(&session_path(env)?, &bytes)
 }
 
 /// Returns whether a session file existed.
 pub fn delete_session(env: &Env) -> Result<bool> {
-    match fs::remove_file(session_path(env)) {
+    match fs::remove_file(session_path(env)?) {
         Ok(()) => Ok(true),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(e) => Err(io_error("cannot delete the session file", e)),
@@ -201,7 +215,7 @@ pub fn delete_session(env: &Env) -> Result<bool> {
 
 /// Random 16 hex characters, generated once and kept in `<config dir>/device-id`.
 pub fn device_id(env: &Env) -> Result<String> {
-    let path = env.config_dir.join("device-id");
+    let path = config_dir(env)?.join("device-id");
     if let Some(id) = fs::read_to_string(&path)
         .ok()
         .map(|s| s.trim().to_string())
@@ -227,13 +241,40 @@ mod tests {
     #[test]
     fn config_dir_override_wins() {
         let dir = default_config_dir(|k| (k == "TAPHOME_CONFIG_DIR").then(|| "/x/y".to_string()));
-        assert_eq!(dir, PathBuf::from("/x/y"));
+        assert_eq!(dir, Some(PathBuf::from("/x/y")));
     }
 
     #[test]
     #[cfg(unix)]
     fn config_dir_from_home() {
         let dir = default_config_dir(|k| (k == "HOME").then(|| "/home/a".to_string()));
-        assert_eq!(dir, PathBuf::from("/home/a/.config/taphome"));
+        assert_eq!(dir, Some(PathBuf::from("/home/a/.config/taphome")));
+    }
+
+    #[test]
+    fn no_home_means_no_config_dir_and_a_missing_config_error() {
+        assert_eq!(default_config_dir(|_| None), None);
+        assert_eq!(default_config_dir(|_| Some(String::new())), None);
+        let env = Env::default();
+        for e in [
+            ensure_config_dir(&env).unwrap_err(),
+            device_id(&env).unwrap_err(),
+            save_session(
+                &env,
+                &StoredSession {
+                    host: String::new(),
+                    location_id: String::new(),
+                    user: String::new(),
+                    session_id: String::new(),
+                    db_hash: None,
+                },
+            )
+            .unwrap_err(),
+            delete_session(&env).unwrap_err(),
+        ] {
+            assert_eq!(e.code, "missing_config");
+            assert!(e.message.contains("HOME") && e.message.contains("TAPHOME_CONFIG_DIR"));
+        }
+        assert!(load_session(&env).is_none());
     }
 }

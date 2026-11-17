@@ -5,14 +5,16 @@ use serde_json::{json, Map, Value};
 pub const REDACTED: &str = "<redacted>";
 
 /// Redacted even with `--show-secrets`.
-const NEVER_SHOWN: [&str; 4] = [
+const NEVER_SHOWN: [&str; 6] = [
     "PasswordHashOrAuthorizationToken",
     "SessionId",
     "NewPasswordHash",
-    "PasswordHash",
+    "OldPasswordHash",
+    "PinCodeHash",
+    "CardCodeHash",
 ];
 /// Redacted unless `--show-secrets`.
-const SECRET_KEYS: [&str; 2] = ["AccessToken", "AuthorizationToken"];
+const SECRET_KEYS: [&str; 4] = ["AccessToken", "AuthorizationToken", "Token", "Passcode"];
 
 pub fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
@@ -49,6 +51,17 @@ fn is_property_map(key: &str) -> bool {
 fn is_secret_property(key: &str) -> bool {
     let k = key.to_ascii_lowercase();
     k.contains("password") || k.contains("token")
+}
+
+/// A property value for a diff or a printed text: masked when its key names a password or token and
+/// the value is not empty. The envelope redactor only sees maps named `*Properties`, so commands
+/// that print single values call this.
+pub fn mask_value(key: &str, value: &str, show_secrets: bool) -> Value {
+    if !show_secrets && !value.is_empty() && is_secret_property(key) {
+        json!(REDACTED)
+    } else {
+        json!(value)
+    }
 }
 
 fn is_empty(v: &Value) -> bool {
@@ -92,6 +105,7 @@ impl Redactor {
 
     fn entry(&self, key: &str, value: &Value, in_property_map: bool) -> Value {
         let hide = NEVER_SHOWN.contains(&key)
+            || key.ends_with("PasswordHash")
             || (!self.show_secrets
                 && (SECRET_KEYS.contains(&key) || (in_property_map && is_secret_property(key))));
         if hide && !is_empty(value) {
@@ -127,6 +141,34 @@ mod tests {
         assert_eq!(from_hex("00ff10"), Some(vec![0, 255, 16]));
         assert_eq!(from_hex("0"), None);
         assert_eq!(from_hex("zz"), None);
+    }
+
+    #[test]
+    fn redacts_hash_keys_always_and_passcode_and_token_unless_shown() {
+        let doc = json!({"OldPasswordHash": "h1", "PinCodeHash": "h2", "CardCodeHash": "h3",
+            "AdminPasswordHash": "h4", "Passcode": "1234", "Token": "t", "Tokens": "keep"});
+        for show in [false, true] {
+            let out = redactor(show).redact(&doc);
+            for k in [
+                "OldPasswordHash",
+                "PinCodeHash",
+                "CardCodeHash",
+                "AdminPasswordHash",
+            ] {
+                assert_eq!(out[k], REDACTED, "{k} show={show}");
+            }
+            assert_eq!(out["Tokens"], "keep");
+        }
+        let hidden = redactor(false).redact(&doc);
+        assert_eq!(
+            (hidden["Passcode"].clone(), hidden["Token"].clone()),
+            (json!(REDACTED), json!(REDACTED))
+        );
+        let shown = redactor(true).redact(&doc);
+        assert_eq!(
+            (shown["Passcode"].clone(), shown["Token"].clone()),
+            (json!("1234"), json!("t"))
+        );
     }
 
     #[test]

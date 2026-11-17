@@ -296,6 +296,14 @@ fn invalid_shapes_are_rejected_before_any_connection() {
             r#"{"Modules": [{"Name": "m", "Model": "X", "ZoneId": "nope"}]}"#,
             "Guid",
         ),
+        (
+            r#"{"Modules": [{"Name": "m", "Model": "X", "Id": 7}]}"#,
+            "placeholders and must be 0 or negative",
+        ),
+        (
+            r#"{"Modules": [{"Name": "m", "Model": "X", "Devices": [{"Name": "d", "Model": "Y", "Id": 3}]}]}"#,
+            "placeholders and must be 0 or negative",
+        ),
     ];
     for (i, (text, needle)) in cases.iter().enumerate() {
         let file = temp_file(&format!("bad{i}.json"), text);
@@ -1007,4 +1015,73 @@ fn last_run_before_the_script_ran_and_other_object_kinds() {
         ],
     );
     assert_eq!(code, 2);
+}
+
+#[test]
+fn script_get_and_set_mask_secret_keys_unless_shown() {
+    let core = FakeCore::start();
+    core.with_state(|s| {
+        let i = s.devices.iter().position(|d| d["ID"] == 21).unwrap();
+        s.devices[i]["DeviceProperties"]["PasswordScript"] = json!("login(hunter2)");
+    });
+    let (code, doc) = run_cli(
+        &core,
+        &["pp", "script", "get", "21", "--key", "PasswordScript"],
+    );
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(data(&doc)["text"], "<redacted>");
+    assert_eq!(data(&doc)["length"], 14);
+    let (_, doc) = run_cli(
+        &core,
+        &[
+            "pp",
+            "script",
+            "get",
+            "21",
+            "--key",
+            "PasswordScript",
+            "--show-secrets",
+        ],
+    );
+    assert_eq!(data(&doc)["text"], "login(hunter2)");
+
+    let (code, doc) = run_cli(
+        &core,
+        &[
+            "pp",
+            "script",
+            "set",
+            "21",
+            "--key",
+            "PasswordScript",
+            "--text",
+            "login(other)",
+            "--dry-run",
+        ],
+    );
+    assert_eq!(code, 0, "{doc}");
+    let diff = &data(&doc)["diff"][0];
+    assert_eq!(
+        (diff["before"].clone(), diff["after"].clone()),
+        (json!("<redacted>"), json!("<redacted>"))
+    );
+    assert!(!doc.to_string().contains("hunter2"));
+    assert!(!doc.to_string().contains("login(other)"));
+}
+
+#[test]
+fn last_run_error_names_the_real_flag() {
+    let core = FakeCore::start();
+    let (code, doc) = run_cli(
+        &core,
+        &[
+            "pp", "script", "last-run", "x", "--key", "k", "--object", "ccu",
+        ],
+    );
+    assert_eq!(code, 2);
+    let message = error(&doc)["message"].as_str().unwrap().to_string();
+    assert!(
+        message.contains("--object ccu") && !message.contains("--object-kind"),
+        "{message}"
+    );
 }

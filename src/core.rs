@@ -734,6 +734,20 @@ fn broadcast_classes(session: &Session) -> Vec<String> {
     seen
 }
 
+/// True when a string value (also inside an embedded JSON document) is the redaction placeholder.
+fn contains_placeholder(value: &Value) -> bool {
+    match value {
+        Value::String(s) => {
+            s == crate::output::REDACTED
+                || (s.starts_with(['{', '[']))
+                    && serde_json::from_str::<Value>(s).is_ok_and(|v| contains_placeholder(&v))
+        }
+        Value::Array(a) => a.iter().any(contains_placeholder),
+        Value::Object(m) => m.values().any(contains_placeholder),
+        _ => false,
+    }
+}
+
 /// The write flow. Result: `{"operation", "response", "broadcasts", "verify": {"ok", "checks"}, "state",
 /// "state_before"}`. `--dry-run` returns the dry-run document and sends nothing. A failed check is
 /// `verify_failed` (exit 8) with the same document in `details`.
@@ -756,6 +770,13 @@ where
             return Err(e);
         }
     };
+    // A hidden value read back from a redacted `get` must never be written to the Core.
+    if contains_placeholder(&plan.fields) {
+        session.close().await;
+        return Err(CliError::invalid_input(
+            "the request contains a redacted placeholder value; read the object again with --show-secrets",
+        ));
+    }
     let verified =
         catalog::operation(spec.class).is_some_and(|op| op.verified) && spec.variant_verified;
     if spec.flags.dry_run {

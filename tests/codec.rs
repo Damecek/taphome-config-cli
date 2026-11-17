@@ -141,20 +141,62 @@ fn encode_rejects_unknown_member_names() {
 
 #[test]
 fn bad_wire_data_is_an_error_not_a_panic() {
-    for raw in [
-        &[0x0a][..],
-        &[0x0a, 0x05, 0x01],
-        &[0xff],
-        &[0x0b],
-        &[0x09, 0x01],
-    ] {
-        let _ = codec::decode("LocationInfo", raw);
+    // each input is deliberately classified: corrupt data must give Err, never a panic
+    let must_fail: [&[u8]; 4] = [&[0x0a], &[0x0a, 0x05, 0x01], &[0xff], &[0x09, 0x01]];
+    for raw in must_fail {
+        assert!(codec::decode("LocationInfo", raw).is_err(), "{raw:02x?}");
     }
-    assert!(codec::decode("LocationInfo", &[0x0a, 0x05, 0x01]).is_err());
+    // 0x0b is an unsupported wire type (3, start group)
+    assert!(codec::decode("LocationInfo", &[0x0b]).is_err());
+    // a ten-byte length varint of u64::MAX must not overflow `i + n`
+    let mut huge = vec![0x0a];
+    huge.extend_from_slice(&[0xff; 9]);
+    huge.push(0x01);
+    assert!(codec::decode("LocationInfo", &huge).is_err());
+    // a varint longer than ten bytes
+    assert!(codec::decode("LocationInfo", &[0x80; 12]).is_err());
     // a string field with a varint on the wire lands in $errors, the rest decodes
     let d = codec::decode("LocationInfo", &[0x10, 0x01, 0x30, 0x01]).unwrap();
     assert_eq!(d["$errors"][0]["field"], "Name");
     assert_eq!(d["IsInTestMode"], true);
+}
+
+#[test]
+fn deeply_nested_messages_are_an_error() {
+    let cat = Catalog::from_json(
+        &json!({"messages": [], "types": [
+            {"name": "Node", "kind": "class", "members": [{"tag": 1, "name": "Child", "type": "Node"}]}]})
+        .to_string(),
+    )
+    .unwrap();
+    let c = Codec::new(&cat);
+    let nest = |levels: usize| {
+        let mut b = Vec::new();
+        for _ in 0..levels {
+            let mut next = vec![0x0a];
+            let mut n = b.len();
+            while n > 0x7f {
+                next.push((n as u8 & 0x7f) | 0x80);
+                n >>= 7;
+            }
+            next.push(n as u8);
+            next.extend_from_slice(&b);
+            b = next;
+        }
+        b
+    };
+    assert!(c.decode("Node", &nest(50)).is_ok());
+    // the field that exceeds the limit lands in $errors of its parent, so the decode itself is Ok
+    let deep = c.decode("Node", &nest(5000));
+    assert!(deep.is_ok());
+    let mut v = deep.unwrap();
+    let mut depth = 0;
+    while let Some(child) = v.get("Child").cloned() {
+        v = child;
+        depth += 1;
+    }
+    assert!(depth <= 101, "depth {depth}");
+    assert!(v.get("$errors").is_some(), "the depth limit is reported");
 }
 
 #[test]
@@ -404,4 +446,174 @@ fn local_capture_oracle() {
     }
     eprintln!("oracle entries checked: {n:?}, mismatches: {bad}");
     assert_eq!(bad, 0);
+}
+
+fn proto(class: &str, v: Value) -> Result<Vec<u8>, codec::CodecError> {
+    codec::encode(
+        "ProtoParameterBase",
+        &json!({"$type": class, "GenericValue": v}),
+    )
+}
+
+#[test]
+fn encode_checks_integer_ranges_per_type() {
+    // (class, max ok, min ok, max + 1, min - 1 or -1 for unsigned)
+    let cases: [(&str, Value, Value, Value, Value); 9] = [
+        (
+            "ProtoParameterInt",
+            json!(2147483647i64),
+            json!(-2147483648i64),
+            json!(2147483648i64),
+            json!(-2147483649i64),
+        ),
+        (
+            "ProtoParameterInt16",
+            json!(32767),
+            json!(-32768),
+            json!(32768),
+            json!(-32769),
+        ),
+        (
+            "ProtoParameterInt8",
+            json!(127),
+            json!(-128),
+            json!(128),
+            json!(-129),
+        ),
+        (
+            "ProtoParameterLong",
+            json!(i64::MAX),
+            json!(i64::MIN),
+            json!(i64::MAX as u64 + 1),
+            json!(-1.5),
+        ),
+        (
+            "ProtoParameterUInt8",
+            json!(255),
+            json!(0),
+            json!(256),
+            json!(-1),
+        ),
+        (
+            "ProtoParameterUInt16",
+            json!(65535),
+            json!(0),
+            json!(65536),
+            json!(-1),
+        ),
+        (
+            "ProtoParameterChar",
+            json!(65535),
+            json!(0),
+            json!(65536),
+            json!(-1),
+        ),
+        (
+            "ProtoParameterUInt32",
+            json!(4294967295u64),
+            json!(0),
+            json!(4294967296u64),
+            json!(-1),
+        ),
+        (
+            "ProtoParameterULong",
+            json!(u64::MAX),
+            json!(0),
+            json!(-1),
+            json!(-1),
+        ),
+    ];
+    for (class, max, min, over, under) in cases {
+        assert!(proto(class, max).is_ok(), "{class} max");
+        assert!(proto(class, min).is_ok(), "{class} min");
+        let e = proto(class, over.clone()).unwrap_err().to_string();
+        assert!(
+            e.contains("GenericValue") && e.contains("out of range"),
+            "{class}: {e}"
+        );
+        assert!(proto(class, under).is_err(), "{class} under");
+    }
+    let e = proto("ProtoParameterInt8", json!(300))
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("300") && e.contains("sbyte"), "{e}");
+    // enums are i32, booleans stay booleans
+    assert!(proto("ProtoParameterClickKind", json!(2147483648i64)).is_err());
+    assert!(proto("ProtoParameterClickKind", json!(1)).is_ok());
+    assert!(proto("ProtoParameterBool", json!(1)).is_err());
+    assert!(proto("ProtoParameterBool", json!(true)).is_ok());
+}
+
+#[test]
+fn encode_checks_integer_ranges_inside_collections() {
+    // packed or repeated List<ushort>
+    let op = |values: Value| codec::encode("ModbusOperation", &json!({"Values": values}));
+    assert!(op(json!([0, 65535])).is_ok());
+    assert!(op(json!([0, 65536])).is_err());
+    assert!(op(json!([-1])).is_err());
+    // nullable ushort
+    let reg = |v: Value| {
+        codec::encode(
+            "ModbusRegisterInfo",
+            &json!({"LastUnsuccessfulWriteValue": v}),
+        )
+    };
+    assert!(reg(json!(65535)).is_ok());
+    assert!(reg(json!(65536)).is_err());
+    // map keys and values (Dictionary<int, int>)
+    let pr = |k: &str, v: i64| codec::encode("TriggerModel", &json!({"Priorities": {k: v}}));
+    assert!(pr("2147483647", 2147483647).is_ok());
+    assert!(pr("2147483648", 1).is_err());
+    assert!(pr("1", 2147483648).is_err());
+}
+
+#[test]
+fn encode_checks_fixed_width_ranges() {
+    let cat = Catalog::from_json(
+        &json!({"messages": [], "types": [{"name": "F", "kind": "class", "members": [
+            {"tag": 1, "name": "A", "type": "uint", "wire_type": "Fixed32"},
+            {"tag": 2, "name": "B", "type": "int", "wire_type": "Fixed32"},
+            {"tag": 3, "name": "C", "type": "ulong", "wire_type": "Fixed64"}]}]})
+        .to_string(),
+    );
+    let cat = cat.unwrap();
+    let c = Codec::new(&cat);
+    assert!(c
+        .encode("F", &json!({"A": 4294967295u64, "B": -1, "C": u64::MAX}))
+        .is_ok());
+    assert!(c.encode("F", &json!({"A": 4294967296u64})).is_err());
+    assert!(c.encode("F", &json!({"A": -1})).is_err());
+    assert!(c.encode("F", &json!({"B": 2147483648i64})).is_err());
+    assert!(c.encode("F", &json!({"C": -1})).is_err());
+}
+
+#[test]
+fn encode_refuses_lossy_or_inconsistent_input() {
+    // tuple longer than its arity
+    let tuple = |items: Value| {
+        codec::encode(
+            "TriggerParametersBase",
+            &json!({"$type": "TemperaturePIDTriggerParameters", "ThermostatOutputMap": {"1": items}}),
+        )
+    };
+    assert!(tuple(json!([1.0, 2.0])).is_ok());
+    let e = tuple(json!([1.0, 2.0, 3.0])).unwrap_err().to_string();
+    assert!(e.contains("tuple has 3 items"), "{e}");
+    // $unknown entry whose "in" is not in the chain
+    let unk = |t: &str| {
+        codec::encode(
+            "MessageBase",
+            &json!({"$unknown": [{"tag": 25, "wt": 0, "hex": "01", "in": t}]}),
+        )
+    };
+    assert!(unk("MessageBase").is_ok());
+    assert!(unk("LocationInfo")
+        .unwrap_err()
+        .to_string()
+        .contains("not in the chain"));
+    // a lossy decode carries $errors; re-encoding is refused
+    let d = codec::decode("LocationInfo", &[0x10, 0x01, 0x30, 0x01]).unwrap();
+    let e = codec::encode("LocationInfo", &d).unwrap_err().to_string();
+    assert!(e.contains("$errors"), "{e}");
+    assert!(codec::encode("LocationInfo", &json!({"$errors": []})).is_ok());
 }

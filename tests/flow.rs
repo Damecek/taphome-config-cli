@@ -329,3 +329,26 @@ fn a_write_that_times_out_is_reported_as_unknown() {
     assert_eq!((err.code.as_str(), err.exit_code), ("timeout", 4));
     assert_eq!(err.details["write_sent"], "unknown");
 }
+
+#[test]
+fn a_redacted_placeholder_is_never_written_back() {
+    let core = FakeCore::start();
+    let doc = rename(&core.ctx(), flags(false, true), true, "<redacted>").unwrap_err();
+    assert_eq!(doc.code, "invalid_input");
+    assert!(
+        doc.message.contains("redacted placeholder"),
+        "{}",
+        doc.message
+    );
+    assert!(core.writes().is_empty(), "nothing was sent");
+    // also on dry-run, and inside an embedded JSON document
+    assert!(rename(&core.ctx(), flags(true, false), true, "<redacted>").is_err());
+    assert!(rename(
+        &core.ctx(),
+        flags(true, false),
+        true,
+        "{\"Password\":\"<redacted>\"}"
+    )
+    .is_err());
+    assert!(rename(&core.ctx(), flags(true, false), true, "TEST ok").is_ok());
+}

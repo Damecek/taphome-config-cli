@@ -1,9 +1,11 @@
 //! `taphome device list | get | set-props | rename | delete | add-virtual`.
+use crate::commands::glob_match;
 use crate::core::{
-    diff_entry, open_session, run_write, Check, Ctx, Snapshot, WriteFlags, WritePlan, WriteSpec,
+    diff_entry, open_session, run_write, Check, Ctx, Rule, Snapshot, WriteFlags, WritePlan,
+    WriteSpec,
 };
 use crate::errors::{CliError, Result};
-use crate::output::REDACTED;
+use crate::output::mask_value;
 use clap::{Args, Subcommand};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -41,7 +43,7 @@ pub enum Cmd {
 
 #[derive(Args)]
 pub struct ListArgs {
-    /// Model pattern, `*` matches any text, case-insensitive
+    /// Model pattern, `*` matches any text and `?` one character, case-insensitive
     #[arg(long, value_name = "GLOB")]
     model: Option<String>,
     /// Case-insensitive part of the name
@@ -95,6 +97,9 @@ pub struct DeleteArgs {
     /// Delete although other devices hang under it (never tested on a real Core, needs --allow-unverified)
     #[arg(long)]
     force: bool,
+    /// Delete although live smart rules reference the device (they will break)
+    #[arg(long)]
+    allow_referenced: bool,
     #[command(flatten)]
     flags: WriteFlags,
 }
@@ -143,27 +148,6 @@ fn id_of(device: &Value) -> i64 {
 }
 
 // ---------------------------------------------------------------- read
-
-/// `*` glob, case-insensitive. Without `*` the whole text must match.
-fn glob_match(pattern: &str, text: &str) -> bool {
-    let (pattern, text) = (pattern.to_lowercase(), text.to_lowercase());
-    let parts: Vec<&str> = pattern.split('*').collect();
-    let (first, last) = (parts[0], parts[parts.len() - 1]);
-    if parts.len() == 1 {
-        return pattern == text;
-    }
-    if text.len() < first.len() + last.len() || !text.starts_with(first) || !text.ends_with(last) {
-        return false;
-    }
-    let mut rest = &text[first.len()..text.len() - last.len()];
-    for part in &parts[1..parts.len() - 1] {
-        match rest.find(part) {
-            Some(at) => rest = &rest[at + part.len()..],
-            None => return false,
-        }
-    }
-    true
-}
 
 async fn list(ctx: &Ctx, args: ListArgs) -> Result<Value> {
     let snapshot = snapshot(ctx).await?;
@@ -246,19 +230,11 @@ fn current_value(device: &Value, key: &str) -> Option<String> {
     value.as_str().map(str::to_string)
 }
 
-fn is_secret_key(key: &str) -> bool {
-    let k = key.to_ascii_lowercase();
-    k.contains("password") || k.contains("token")
-}
-
 /// The output redactor only sees maps named `*Properties`: diff values need their own masking.
 fn shown(ctx: &Ctx, key: &str, value: Option<&str>) -> Value {
     match value {
         None => Value::Null,
-        Some(v) if !v.is_empty() && !ctx.global.show_secrets && is_secret_key(key) => {
-            json!(REDACTED)
-        }
-        Some(v) => json!(v),
+        Some(v) => mask_value(key, v, ctx.global.show_secrets),
     }
 }
 
@@ -447,15 +423,25 @@ async fn delete(ctx: &Ctx, args: DeleteArgs) -> Result<Value> {
                 ))
                 .with_details(json!({"children": children})));
             }
-            let rules: Vec<String> = snapshot
+            let rules: Vec<&Rule> = snapshot
                 .live_rules()
                 .filter(|r| refers_to(&r.model, id))
-                .map(|r| format!("{} \"{}\"", r.id, r.name))
                 .collect();
             if !rules.is_empty() {
+                let names: Vec<String> = rules
+                    .iter()
+                    .map(|r| format!("{} \"{}\"", r.id, r.name))
+                    .collect();
+                if !args.allow_referenced {
+                    return Err(CliError::invalid_input(format!(
+                        "device {id} is referenced by smart rules: {} (pass --allow-referenced to delete anyway)",
+                        names.join(", ")
+                    ))
+                    .with_details(json!({"rules": rules.iter().map(|r| json!({"id": r.id, "name": r.name})).collect::<Vec<_>>()})));
+                }
                 ctx.warn(format!(
                     "device {id} is referenced by smart rules: {}",
-                    rules.join(", ")
+                    names.join(", ")
                 ));
             }
             let (name, model, serial) = (
@@ -596,18 +582,6 @@ async fn add_virtual(ctx: &Ctx, args: AddVirtualArgs) -> Result<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn glob_matches_case_insensitive_with_stars() {
-        assert!(glob_match("Virtual*", "VirtualSwitch"));
-        assert!(glob_match("*switch", "VirtualSwitch"));
-        assert!(glob_match("v*t*h", "VirtualSwitch"));
-        assert!(glob_match("*", ""));
-        assert!(glob_match("virtualswitch", "VirtualSwitch"));
-        assert!(!glob_match("Virtual", "VirtualSwitch"));
-        assert!(!glob_match("a*ab", "ab"));
-        assert!(!glob_match("*x*", "VirtualSwitch"));
-    }
 
     #[test]
     fn rule_references_cover_ids_and_id_lists() {

@@ -7,7 +7,7 @@ use crate::core::{
     WriteSpec,
 };
 use crate::errors::CliError;
-use crate::output::REDACTED;
+use crate::output::{mask_value, REDACTED};
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use serde_json::{json, Map, Value};
 use std::cell::RefCell;
@@ -83,6 +83,7 @@ pub struct GetArgs {
 pub struct SetArgs {
     /// Device id or exact name
     device: String,
+    /// Property key of the script to change, for example ReadStateScriptPacketParser
     #[arg(long)]
     key: String,
     /// Read the new text from FILE, `-` for stdin
@@ -425,6 +426,11 @@ fn normalize_device(
     let model = required_text(obj, "Model", at)?;
     let id = match opt_int(obj, "Id", at)? {
         0 => ids.next(),
+        given if given > 0 => {
+            return Err(bad(format!(
+                "{at}: ids in a config are placeholders and must be 0 or negative; the Core allocates real ids"
+            )))
+        }
         given => given,
     };
     let parent = opt_int(obj, "HardwareParentId", at)?;
@@ -942,12 +948,7 @@ fn pick_ccu(
 }
 
 fn redact_diff(key: &str, value: &str, show: bool) -> Value {
-    let k = key.to_ascii_lowercase();
-    if !show && (k.contains("password") || k.contains("token")) {
-        json!(REDACTED)
-    } else {
-        json!(value)
-    }
+    mask_value(key, value, show)
 }
 
 fn verify_import(
@@ -1228,7 +1229,8 @@ async fn script_get(ctx: &Ctx, args: GetArgs) -> Result<Value, CliError> {
             return Err(missing_key(d, key));
         };
         return Ok(json!({"device": device_ref(d), "key": key,
-                         "length": text.chars().count(), "text": text}));
+                         "length": text.chars().count(),
+                         "text": mask_value(key, text, ctx.global.show_secrets)}));
     }
     let scripts: Vec<Value> = script_keys(d)
         .into_iter()
@@ -1275,6 +1277,7 @@ async fn script_set(ctx: &Ctx, args: SetArgs) -> Result<Value, CliError> {
     let text = read_new_text(&args)?;
     let (reference, key) = (args.device.clone(), args.key.clone());
     let allow_new = args.allow_new_key;
+    let show_secrets = ctx.global.show_secrets;
     let spec = WriteSpec::new(
         "updateMultipleDevicesProperties",
         "MessageUpdateMultipleDevicesPropertiesRequest",
@@ -1291,14 +1294,19 @@ async fn script_set(ctx: &Ctx, args: SetArgs) -> Result<Value, CliError> {
                 return Err(CliError::new("pp_unchanged", "the script already has this text")
                     .with_details(json!({"device": device_ref(d), "key": key, "length": text.chars().count()})));
             }
-            let diff = diff_entry(
-                "change",
-                "device",
-                json!(id),
-                &key,
-                before.map_or(Value::Null, |b| change_summary(b, &text)),
-                change_summary(&text, before.unwrap_or("")),
-            );
+            let (old, new) = if mask_value(&key, "x", show_secrets) == json!("x") {
+                (
+                    before.map_or(Value::Null, |b| change_summary(b, &text)),
+                    change_summary(&text, before.unwrap_or("")),
+                )
+            } else {
+                // a secret script: even its first differing line stays out of the diff
+                (
+                    before.map_or(Value::Null, |_| json!(REDACTED)),
+                    json!(REDACTED),
+                )
+            };
+            let diff = diff_entry("change", "device", json!(id), &key, old, new);
             let (key, text) = (key.clone(), text.clone());
             let sent = json!({"DeviceIds": [id], "DeviceProperties": {key.clone(): text.clone()}});
             Ok(WritePlan::new(sent, vec![diff], move |after, _response| {
@@ -1427,7 +1435,7 @@ async fn last_run(
     } else {
         let id = args.target.trim().parse::<i32>().map_err(|_| {
             bad(format!(
-                "with --object-kind {kind} the object must be its integer id"
+                "with --object {kind} the target must be the object's integer id"
             ))
         })?;
         (i64::from(id), Value::Null)

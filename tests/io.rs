@@ -204,3 +204,39 @@ fn watch_collects_filtered_changes_and_counts_classes() {
     let (code, _) = run_cli(&core, &["io", "watch", "--seconds", "0", "--device", "999"]);
     assert_eq!(code, 6);
 }
+
+#[test]
+fn watch_counts_each_broadcast_once_across_polls() {
+    let core = FakeCore::start();
+    let (code, doc) = std::thread::scope(|scope| {
+        scope.spawn(|| {
+            for pause in [400, 500, 500] {
+                std::thread::sleep(std::time::Duration::from_millis(pause));
+                core.push_broadcast(
+                    "MessageDeviceValueChangedBroadcast",
+                    json!({"DeviceId": 10, "ValueTypeId": 48, "Value": 1.0}),
+                );
+            }
+        });
+        run_cli(&core, &["io", "watch", "--seconds", "2"])
+    });
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(
+        data(&doc)["broadcasts"]["MessageDeviceValueChangedBroadcast"],
+        3
+    );
+    assert_eq!(data(&doc)["changes"].as_array().unwrap().len(), 3);
+}
+
+#[test]
+fn values_model_uses_the_same_glob_as_device_list() {
+    let core = FakeCore::start();
+    seed_values(&core);
+    // `?` is one character and the match ignores case, as in `device list --model`
+    let (_, doc) = run_cli(&core, &["io", "values", "--model", "virtual?witch"]);
+    assert_eq!(data(&doc)["summary"]["devices"], 1);
+    let (_, doc) = run_cli(&core, &["io", "values", "--model", "virtual?"]);
+    assert_eq!(data(&doc)["summary"]["devices"], 0);
+    let (_, doc) = run_cli(&core, &["device", "list", "--model", "virtual?witch"]);
+    assert_eq!(data(&doc)["devices"].as_array().unwrap().len(), 1);
+}

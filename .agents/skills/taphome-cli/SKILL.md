@@ -19,7 +19,7 @@ description: Use when configuring or inspecting a TapHome Core with the `taphome
 - Reads are free: `sync`, `device list|get`, `rule list|get|errors`, `io values|errors|log|watch`, `pp inspect`, `pp script get|last-run`, `raw ops`.
 - Before any write, run the same command with `--dry-run`, show the owner the `diff` and the message, and wait for approval. A dry run sends nothing.
 - Test objects get the prefix `TEST-zz-agent-test` in their name. Delete them when the test is done.
-- Never pass `--allow-unverified` or `raw call --allow-write` unless the owner agreed to that specific operation. Names of operations are in the `operation` field of the dry run.
+- Never pass `--allow-unverified` or `raw call --allow-write` unless the owner agreed to that specific operation. Names of operations are in the `operation` field of the dry run. A class that is missing from `raw ops` needs both switches.
 - Run `taphome sync` before and after a write and compare `counts`. A write prints `state_before` and `state` too.
 - Device control (`MessageDeviceAction` and similar) is out of scope. Do not use `raw call` for it.
 - Never print or copy the Core address, user names, passwords, tokens or the salt into a repository, a report or a ticket.
@@ -108,7 +108,7 @@ taphome rule apply rule.json --dry-run
 taphome rule apply rule.json
 ```
 
-`Id` stays in the file, so the command updates that rule. An update is an unverified variant, so it needs the owner's agreement before `--allow-unverified`. Keys you remove from the file keep their stored values. `taphome rule enable` and `rule disable` are unverified too.
+`Id` stays in the file, so the command updates that rule. An update is an unverified variant, so it needs the owner's agreement before `--allow-unverified`. Keys you remove from the file keep their stored values. On an update the CLI ignores `TriggerInputs`, `ChangesetId` and `IsDeleted` from the file and warns when they differ from the stored ones. A changed `Priorities` is applied and shown in the diff. `rule get` hides secrets such as a `Passcode`. A file that still holds `<redacted>` is refused with `invalid_input`, so read the rule again with `--show-secrets` if you must apply it. `taphome rule enable` and `rule disable` are unverified too.
 
 ### Rename or reconfigure a device
 
@@ -124,7 +124,7 @@ taphome device set-props <device> --prop IsReadOnly=True --dry-run
 
 1. `taphome device list --name TEST-zz-agent-test` and `taphome rule list --name TEST-zz-agent-test`.
 2. Delete rules: `taphome rule delete "<name or id>" --dry-run`, then for real.
-3. Delete child devices first, then the module: `taphome device delete <child>` for each, then `taphome device delete <module>`. A device with children is refused, and `--force` is unverified.
+3. Delete child devices first, then the module: `taphome device delete <child>` for each, then `taphome device delete <module>`. A device with children is refused, and `--force` is unverified. A device that live smart rules reference is refused with the rule ids and names in `details.rules`. Delete or change those rules first, or pass `--allow-referenced` when the owner agreed.
 4. `taphome sync` and compare `counts` with the numbers from before the test.
 
 ## Pitfalls

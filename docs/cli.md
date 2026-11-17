@@ -73,7 +73,7 @@ CLI codes:
 |---|---|
 | `usage` | The command line does not parse. |
 | `invalid_input` | A file, id, key or value is wrong. The message says which. |
-| `missing_config` | A required `TAPHOME_*` variable is missing, a `_FILE` cannot be read, or `TAPHOME_HOST` is not a valid host. |
+| `missing_config` | A required `TAPHOME_*` variable is missing, a `_FILE` cannot be read, `TAPHOME_HOST` is not a valid host, or no config directory can be found (no `HOME` and no `TAPHOME_CONFIG_DIR`). |
 | `login_failed` | The Core refused the login. `details.login_result` names the reason, for example `WrongPassword`. |
 | `session_invalid` | The stored session was rejected and no password is available to log in again. |
 | `salt_missing` | Login needs the salt and the binary has none (see [Salt lookup](#salt-lookup)). |
@@ -95,12 +95,13 @@ Core error codes are the names of the protocol's `CommonErrorCodes` in snake cas
 
 All output goes through one redactor, including `--dry-run`, `sync --out` and error details.
 
-- The keys `PasswordHashOrAuthorizationToken`, `SessionId`, `NewPasswordHash` and `PasswordHash` are always replaced with `<redacted>`.
-- The keys `AccessToken` and `AuthorizationToken` are replaced unless `--show-secrets` is set.
+- The keys `PasswordHashOrAuthorizationToken`, `SessionId`, `NewPasswordHash`, `OldPasswordHash`, `PinCodeHash`, `CardCodeHash` and any key that ends with `PasswordHash` are always replaced with `<redacted>`.
+- The keys `AccessToken`, `AuthorizationToken`, `Token` and `Passcode` are replaced unless `--show-secrets` is set.
 - Inside any map whose key ends in `Properties` or `Parameters` (for example `DeviceProperties`), keys that contain "password" or "token" in any case are replaced unless `--show-secrets` is set.
 - A `ConfigJson` string (a Packet Parser configuration) is parsed, redacted the same way and written back as text.
 - Every secret the process knows (the password, the password hash, the salt, the session id) is replaced wherever it appears as a whole string value.
 - Empty values are left as they are, so an empty password stays visible as empty.
+- A write never sends the placeholder. If any string in the request fields (also inside an embedded JSON document) is `<redacted>`, the command fails with `invalid_input` and the message "the request contains a redacted placeholder value; read the object again with --show-secrets". This protects `rule get` followed by `rule apply` and `device get` followed by `device set-props`.
 
 Diffs of `device set-props` and `pp import` mask password and token values in the same way.
 
@@ -132,14 +133,14 @@ Without flags it prints a summary: `core_version`, `protocol`, `counts` and `int
 | `device get <DEVICE>` | read, from the sync | nothing | `device`: the full decoded device with properties, current values and capabilities |
 | `device set-props <DEVICE> --prop K=V... [--props-file F] [--allow-new-key]` | write | `updateMultipleDevicesProperties`, `MessageUpdateMultipleDevicesPropertiesRequest` | write result, `diff`, `changed: false` when nothing differs |
 | `device rename <DEVICE> <NAME>` | write | the same message, with `Name` only | as above |
-| `device delete <DEVICE> [--force]` | write | `deleteDevice`, `MessageDeleteDeviceRequest` | write result, `diff` |
+| `device delete <DEVICE> [--force] [--allow-referenced]` | write | `deleteDevice`, `MessageDeleteDeviceRequest` | write result, `diff` |
 | `device add-virtual --model M --name N [--interface I] [--prop K=V]...` | write | `addVirtualVariable` (model `VirtualVariableGeneral`) or `addVirtualDevice`, `MessageAddDeviceRequest` | write result, `diff`, `device` with `id`, `serial` and `property_keys` |
 
 Details:
 
-- `--model GLOB` in `device list` is case-insensitive and `*` matches any text. `--name` is a case-insensitive substring. `--parent` matches `HardwareParentId`.
+- `--model GLOB` in `device list` and `io values` is case-insensitive, `*` matches any text and `?` matches one character. `--name` is a case-insensitive substring. `--parent` matches `HardwareParentId`.
 - `set-props` takes `K=V` split at the first `=`. `--props-file` is a JSON object of string values, and `--prop` wins over the file. `Name` is a top-level field and every other key lives in `DeviceProperties`. A key that the device does not have is refused as a typo guard, with close key names in the message, unless `--allow-new-key` is given. Values that equal the current ones are skipped with a warning.
-- `delete` refuses a device that has children (other devices with it as `HardwareParentId`) and tells you the ids. Delete children first. `--force` sends `ForceDelete` and is an unverified variant. A warning lists smart rules that mention the device. The Core reuses ids, so the check compares the serial number to decide that the device is gone.
+- `delete` refuses a device that has children (other devices with it as `HardwareParentId`) and tells you the ids. Delete children first. `--force` sends `ForceDelete` and is an unverified variant. Live smart rules that mention the device block the delete with `invalid_input` and `details.rules` (ids and names) unless you pass `--allow-referenced`, which keeps the delete and adds a warning that lists them. The Core reuses ids, so the check compares the serial number to decide that the device is gone.
 - `add-virtual` knows the interface for these models: `VirtualVariableGeneral` (Variable), `VirtualSwitch` (Switch), `VirtualThermostatDummy` (Thermostat), `VirtualAnalogOutput` (Dimmer), `VirtualPushButton` (PushButton), `VirtualReedContact` (ReedContact) and `VirtualMultiValueSwitch` (MultiValueSwitch). Other models need `--interface`. A warning appears when the name is already taken.
 
 ### pp
@@ -148,17 +149,17 @@ Details:
 |---|---|---|---|
 | `pp inspect <FILE> [--param K=V]...` | offline | nothing | `source` (`xml` or `json`), `template`, `kind` (`packet_parser` or `modbus`), `ccu_id`, `parameters`, `modules`, `devices`, `unresolved_tokens`, `variant` (`verified`, `notes`), `config` (the canonical configuration that would be sent) |
 | `pp import <FILE> [--param K=V]... [--ccu ID]` | write | `addPacketParserModule` (new module) or `addTemplateDevicesToExistingPacketParserModule` (devices only), `MessageHttpApiConfigRequest` with `CcuId` and `ConfigJson`, answered by `MessageHttpApiConfigResponse` | write result, `diff` (one `add` per module and device, with script lengths and first lines instead of whole scripts), `ccu_id`, `created` (`modules` and `devices` with real ids), `removed`, `property_differences`. A dry run adds `variant_notes`. |
-| `pp script get <DEVICE> [--key K]` | read, from the sync | nothing | `device`, then `scripts` (per script key: `key`, `length`, `first_line`) or, with `--key`, `key`, `length` and the full `text` |
+| `pp script get <DEVICE> [--key K]` | read, from the sync | nothing | `device`, then `scripts` (per script key: `key`, `length`, `first_line`) or, with `--key`, `key`, `length` and the full `text` (masked as `<redacted>` when the key contains "password" or "token", unless `--show-secrets`) |
 | `pp script set <DEVICE> --key K (--file F \| --text T) [--allow-new-key]` | write | `updateMultipleDevicesProperties`, `MessageUpdateMultipleDevicesPropertiesRequest` with one property | write result, `changed` |
 | `pp script last-run <DEV> [--key K] [--object device\|ccu\|rule]` | read | `getScriptLastRunValues`, `MessageGetScriptLastRunValuesRequest` | `object`, `key`, `has_run`, and when the script ran: `result`, `run_timestamp_utc`, `run_timestamp_ticks`, `run_duration_seconds`, `variables_by_phase` |
 
 Details:
 
 - A property counts as a script when its key contains "Script" or is one of `CustomVariables`, `DeviceVariables` and `Variables`.
-- `--file -` reads the script from stdin. The diff of `script set` shows the old and new length and the first line that differs, never the whole script.
+- `--file -` reads the script from stdin. The diff of `script set` shows the old and new length and the first line that differs, never the whole script. For a key that contains "password" or "token" the diff shows `<redacted>` instead, unless `--show-secrets`.
 - `--ccu` takes an interface id or an exact name. Without it, the import uses the only interface with model `PacketParserCCU`. With none, it fails with `not_found`. With several, it fails with `ambiguous`.
 - `import` refuses Modbus configurations (`invalid_input`), refuses unresolved parameters, and warns when a device with the same name exists. After the write it checks that `AddedDevices` lists exactly what was sent, that every id exists with the sent name and model, that children point to their new module and that the device count grew. `property_differences` lists properties the Core stored differently from what was sent.
-- `last-run` with `--object ccu` or `--object rule` expects the object's integer id in `DEV`. `--key` is required for devices and interfaces and not needed for rules. When the script never ran, `has_run` is false and nothing else is printed. The error text for a bad id still says `--object-kind`, but the flag is `--object`.
+- `last-run` with `--object ccu` or `--object rule` expects the object's integer id in `DEV`. `--key` is required for devices and interfaces and not needed for rules. When the script never ran, `has_run` is false and nothing else is printed.
 
 ### rule
 
@@ -186,7 +187,6 @@ Details:
 
 - Each value entry has `type` (the `ValueLogType` id), `name`, `value` (a double, booleans are 0 and 1), `changed_at` and `changed_on_th` (TapHome time, seconds since 2016-01-01 UTC). The value with type 7 is the device status and gets a `status` object. Codes below 256 are the `DeviceStatus` enum with `name` and `ok`. Larger codes are packed counts of `errors`, `warnings` and `infos`, and count as not ok.
 - `io values` shows the values as of the sync that this command just did. For a live view use `io watch`.
-- `--model` of `io values` accepts `*` and `?`. The same flag of `device list` accepts only `*`.
 - `io errors` chooses `--origin 1` (module) for devices whose interface is `IHardwareParentModule` and 0 (device) otherwise. 2 is the interface and 3 the Core.
 - `io watch` accepts 0 to 300 seconds (default 10).
 
@@ -200,9 +200,9 @@ Details:
 `raw call` rules:
 
 1. The class must be a known request class, else `invalid_input`.
-2. `--dry-run` is offline. It prints `operation`, `verified`, `kind`, `message` (`class`, `fields`), `diff: null`, `frame_hex` and `frame_redacted`, and sends nothing, not even a sync. The frame is built from the redacted fields.
-3. A write or action class needs `--allow-write`, else `write_not_allowed`.
-4. A class with `verified: false`, or one that is not in the registry, needs `--allow-unverified`, else `unverified_operation`.
+2. `--dry-run` is offline. It prints `operation`, `verified`, `kind`, `message` (`class`, `fields`), `diff: null`, `frame_hex` and `frame_redacted`, and sends nothing, not even a sync. The frame and `message.fields` are built from the redacted fields.
+3. A write or action class needs `--allow-write`, else `write_not_allowed`. A class that is not in the registry counts as a write.
+4. A class with `verified: false`, or one that is not in the registry, needs `--allow-unverified`, else `unverified_operation`. So a class without a registry entry needs both switches.
 5. A read or subscribe class prints `class`, `response` and `broadcasts` (counts per class collected for `--wait-broadcasts` seconds, up to 3600).
 6. A write goes through the [write flow](#the-write-flow). Because there is no expected state, its single check always passes. Compare `delta` (the signed change of each count between `state_before` and `state`).
 
@@ -272,7 +272,7 @@ The configuration has optional `ProtocolVersion` (default 66), `Name`, `Id` and 
 
 ### Placeholder ids
 
-Modules and devices in the file get a negative placeholder id when they have none (`-1`, `-2`, and so on, skipping ids already used). The Core assigns real ids and returns them in `created`. Variable lists inside properties (`DeviceVariables`) refer to devices by placeholder id, so keep those consistent with the ids in the file.
+Modules and devices in the file get a negative placeholder id when they have none (`-1`, `-2`, and so on, skipping ids already used). The Core assigns real ids and returns them in `created`. Variable lists inside properties (`DeviceVariables`) refer to devices by placeholder id, so keep those consistent with the ids in the file. A positive `Id` on a module or device is refused with `invalid_input` ("ids in a config are placeholders and must be 0 or negative; the Core allocates real ids"). `HardwareParentId` may be positive in the devices-only form, where it names an existing module.
 
 ### What is refused
 
@@ -313,7 +313,7 @@ Minimal formula rule:
 
 Replace `11` with the id of a real variable device. `ValueLogType` 62 is `VariableState`.
 
-Fields the Core manages: `ChangesetId`, `TriggerInputs`, `Priorities` and `IsDeleted`. On create the CLI removes them from the file before sending and the Core fills them. On update they are not diffed and not compared afterwards, and `IsDeleted` in the file is ignored.
+Fields the Core manages: `ChangesetId`, `TriggerInputs`, `Priorities` and `IsDeleted`. On create the CLI removes them from the file before sending and the Core fills them. On update the file's `TriggerInputs`, `ChangesetId` and `IsDeleted` are ignored: the stored values are kept and a warning appears when the file's value differs. `Priorities` is a legitimate edit. When the file's `Priorities` differs from the stored one, it shows in the diff and the CLI checks after the write that it reads back equal.
 
 An update applies the file over the stored model. Keys missing from the file keep their stored values. If the result equals the stored rule, the command prints `changed: false` and sends nothing. Before an update the CLI checks that the stored rule decodes and re-encodes to the exact bytes the Core sent. If not, it stops with `roundtrip_mismatch`, so a field the codec does not understand is never lost. After a write it checks that the stored rule contains every key that was sent and that `ChangesetId` grew (create checks that exactly one live rule has the name and type, and that `IsEnabled` and `TriggerParameters` read back as sent).
 
@@ -336,7 +336,7 @@ A stored session is used only when it matches the configured host and user. An e
 
 ### Files in the config directory
 
-The directory is `$TAPHOME_CONFIG_DIR`, else `~/.config/taphome` on macOS and Linux, else `%APPDATA%\taphome` on Windows. If neither home nor `APPDATA` is known, it is `.taphome` in the current directory. A directory that the CLI creates gets mode 700 (an existing one is left alone). Files get mode 600 on unix and are written to a temporary file and renamed. Windows has no mode bits, so the profile directory permissions protect the files.
+The directory is `$TAPHOME_CONFIG_DIR`, else `~/.config/taphome` on macOS and Linux, else `%APPDATA%\taphome` on Windows. If neither `TAPHOME_CONFIG_DIR` nor home (`APPDATA` on Windows) is set, commands that need the directory fail with `missing_config` and the message to set `HOME` or `TAPHOME_CONFIG_DIR`. There is no relative fallback. At build time a missing home only means there is no salt file. A directory that the CLI creates gets mode 700 (an existing one is left alone). Files get mode 600 on unix and are written to a temporary file and renamed. Windows has no mode bits, so the profile directory permissions protect the files.
 
 | File | Content |
 |---|---|

@@ -30,7 +30,10 @@ pub enum Cmd {
     /// List live rules (tombstones with --all)
     List(ListArgs),
     /// Print the decoded model, in the form `rule apply` accepts
-    Get { rule: String },
+    Get {
+        /// Rule id or exact name
+        rule: String,
+    },
     /// Create (Id 0 or absent) or update (Id of a live rule) a rule from a JSON file
     Apply(ApplyArgs),
     /// Enable a rule (unverified variant)
@@ -40,7 +43,10 @@ pub enum Cmd {
     /// Delete a rule (the Core keeps a tombstone)
     Delete(ToggleArgs),
     /// Errors the Core reports for a rule
-    Errors { rule: String },
+    Errors {
+        /// Rule id or exact name
+        rule: String,
+    },
 }
 
 #[derive(Args)]
@@ -400,12 +406,13 @@ async fn apply(ctx: &Ctx, args: ApplyArgs) -> Result<Value, CliError> {
             .as_i64()
             .ok_or_else(|| CliError::invalid_input("Id must be an integer"))?,
     };
-    if has_params_type(&model) {
+    // A model with $errors comes from a lossy decode: the stored rule's gates give the better message.
+    if has_params_type(&model) && model.get("$errors").is_none_or(is_default) {
         encode_check(&Value::Object(model.clone()))?;
     }
     if id != 0 {
         let mut spec = WriteSpec::new("upsertSmartRules", UPSERT, args.flags, move |s| {
-            plan_update(s, id, model)
+            plan_update(ctx, s, id, model)
         });
         spec.variant_verified = false;
         return finish(run_write(ctx, spec).await, id);
@@ -508,6 +515,7 @@ fn plan_create(
 }
 
 fn plan_update(
+    ctx: &Ctx,
     snapshot: &Snapshot,
     id: i64,
     mut file: Map<String, Value>,
@@ -529,13 +537,40 @@ fn plan_update(
     if file.contains_key("TriggerParameters") {
         require_params_type(snapshot, &file, rule.type_id)?;
     }
-    file.remove("IsDeleted");
-    // The file is applied over the current model: omitted keys (Priorities, $unknown, ...) stay.
+    // The Core owns these keys: the stored value stays, a different one in the file is only reported.
+    for key in ["TriggerInputs", "ChangesetId", "IsDeleted"] {
+        if let Some(value) = file.remove(key) {
+            let stored = rule.model.get(key).unwrap_or(&Value::Null);
+            if !(value == *stored || is_default(&value) && is_default(stored)) {
+                ctx.warn(format!(
+                    "ignored {key} from the file ({value}): the Core manages it, the stored value ({stored}) is kept"
+                ));
+            }
+        }
+    }
+    // The file is applied over the current model: omitted keys ($unknown, ...) stay.
     let mut new = rule.model.clone();
     for (key, value) in file {
         new[key] = value;
     }
-    let diff = model_diff(id, &rule.model, &new);
+    let mut diff = model_diff(id, &rule.model, &new);
+    // Priorities is a legitimate edit, but `model_diff` leaves it out with the managed keys.
+    let (old_priorities, new_priorities) = (
+        rule.model.get("Priorities").unwrap_or(&Value::Null).clone(),
+        new.get("Priorities").unwrap_or(&Value::Null).clone(),
+    );
+    let priorities_edited = !(old_priorities == new_priorities
+        || is_default(&old_priorities) && is_default(&new_priorities));
+    if priorities_edited {
+        diff.push(diff_entry(
+            "change",
+            "rule",
+            json!(id),
+            "Priorities",
+            old_priorities,
+            new_priorities.clone(),
+        ));
+    }
     if diff.is_empty() {
         return Err(noop(json!("the file matches the stored rule")));
     }
@@ -544,7 +579,7 @@ fn plan_update(
     let fields = json!({"TriggerModels": [new.clone()]});
     Ok(WritePlan::new(fields, diff, move |after, _| {
         let stored = after.rule(id);
-        vec![
+        let mut checks = vec![
             Check::new(
                 "stored rule equals the sent one",
                 stored.is_some_and(|r| covers(&r.model, &without_managed(&new))),
@@ -555,7 +590,18 @@ fn plan_update(
                 stored
                     .is_some_and(|r| r.model["ChangesetId"].as_i64().unwrap_or(0) > old_changeset),
             ),
-        ]
+        ];
+        if priorities_edited {
+            let read_back = |r: &Rule| {
+                let stored = r.model.get("Priorities").unwrap_or(&Value::Null);
+                covers(stored, &new_priorities) && covers(&new_priorities, stored)
+            };
+            checks.push(Check::new(
+                "Priorities read back equal",
+                stored.is_some_and(read_back),
+            ));
+        }
+        checks
     }))
 }
 

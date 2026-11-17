@@ -370,7 +370,10 @@ fn dropped_write_fails_verification_with_exit_8() {
 fn delete_a_leaf_device_warns_about_rules() {
     let core = FakeCore::start();
     let before = device_count(&core);
-    let (code, doc) = run_cli(&core, &["device", "delete", "Test variable"]);
+    let (code, doc) = run_cli(
+        &core,
+        &["device", "delete", "Test variable", "--allow-referenced"],
+    );
     assert_eq!(code, 0, "{doc}");
     assert_eq!(device_count(&core), before - 1);
     assert_eq!(data(&doc)["verify"]["ok"], true);
@@ -385,6 +388,23 @@ fn delete_a_leaf_device_warns_about_rules() {
     );
     assert!(!warning.contains("Old rule"), "tombstones are ignored");
     assert_eq!(core.writes(), vec!["MessageDeleteDeviceRequest"]);
+}
+
+#[test]
+fn delete_refuses_a_device_that_live_rules_reference() {
+    let core = FakeCore::start();
+    let before = device_count(&core);
+    let (code, doc) = run_cli(&core, &["device", "delete", "Test variable"]);
+    assert_eq!(
+        (code, error(&doc)["code"].clone()),
+        (2, json!("invalid_input"))
+    );
+    let rules = error(&doc)["details"]["rules"].as_array().unwrap().clone();
+    let ids: Vec<Value> = rules.iter().map(|r| r["id"].clone()).collect();
+    assert_eq!(ids, vec![json!(1), json!(2)], "tombstones are ignored");
+    assert_eq!(rules[0]["name"], "Test rule A");
+    assert!(core.writes().is_empty());
+    assert_eq!(device_count(&core), before);
 }
 
 #[test]

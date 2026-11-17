@@ -490,3 +490,93 @@ fn errors_decodes_codes_and_times() {
     let (code, _) = run_cli(&core, &["rule", "errors", "Old rule"]);
     assert_eq!(code, 6);
 }
+
+#[test]
+fn a_redacted_passcode_is_never_applied_back() {
+    let core = FakeCore::start();
+    core.with_state(|s| {
+        s.rules[0]["TriggerParameters"] =
+            json!({"$type": "AlarmTriggerParameters", "Passcode": "1234"});
+    });
+    let (_, doc) = run_cli(&core, &["rule", "get", "1"]);
+    let mut model = data(&doc)["model"].clone();
+    assert_eq!(model["TriggerParameters"]["Passcode"], "<redacted>");
+    model["Name"] = json!("Renamed");
+    let file = temp_json(&core, "redacted.json", &model);
+    let (code, doc) = run_cli(&core, &["rule", "apply", &file, "--allow-unverified"]);
+    assert_eq!(
+        (code, error(&doc)["code"].clone()),
+        (2, json!("invalid_input"))
+    );
+    assert!(error(&doc)["message"]
+        .as_str()
+        .unwrap()
+        .contains("redacted placeholder"));
+    assert!(core.writes().is_empty());
+    // read with --show-secrets, edit, apply: the real value goes through
+    let (_, doc) = run_cli(&core, &["rule", "get", "1", "--show-secrets"]);
+    let mut model = data(&doc)["model"].clone();
+    assert_eq!(model["TriggerParameters"]["Passcode"], "1234");
+    model["Name"] = json!("Renamed");
+    let file = temp_json(&core, "shown.json", &model);
+    let (code, doc) = run_cli(&core, &["rule", "apply", &file, "--allow-unverified"]);
+    assert_eq!(code, 0, "{doc}");
+    assert_eq!(rule_state(&core, 1)["Name"], "Renamed");
+}
+
+#[test]
+fn update_keeps_core_managed_keys_and_warns() {
+    let core = FakeCore::start();
+    let (_, doc) = run_cli(&core, &["rule", "get", "1"]);
+    let mut model = data(&doc)["model"].clone();
+    model["TriggerParameters"]["EvaluationFormula"] = json!("Va + 2");
+    model["ChangesetId"] = json!(999);
+    model["IsDeleted"] = json!(true);
+    model["TriggerInputs"] = json!({"InstantConnections": {"Connections": {"62": [11]}}});
+    let file = temp_json(&core, "managed.json", &model);
+    let (code, doc) = run_cli(&core, &["rule", "apply", &file, "--dry-run"]);
+    assert_eq!(code, 0, "{doc}");
+    let sent = &data(&doc)["message"]["fields"]["TriggerModels"][0];
+    assert_eq!(sent["ChangesetId"], 1, "the stored changeset is kept");
+    assert!(sent.get("IsDeleted").is_none_or(|v| v == false));
+    assert!(sent.get("TriggerInputs").is_none());
+    let warnings = doc["warnings"].as_array().unwrap();
+    for key in ["ChangesetId", "IsDeleted", "TriggerInputs"] {
+        assert!(
+            warnings.iter().any(|w| w.as_str().unwrap().contains(key)),
+            "{key}: {warnings:?}"
+        );
+    }
+    let paths: Vec<&str> = data(&doc)["diff"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths, ["TriggerParameters.EvaluationFormula"]);
+}
+
+#[test]
+fn update_diffs_and_verifies_priorities() {
+    let core = FakeCore::start();
+    let (_, doc) = run_cli(&core, &["rule", "get", "1"]);
+    let mut model = data(&doc)["model"].clone();
+    model["Priorities"] = json!({"5": 2});
+    let file = temp_json(&core, "prio.json", &model);
+    let (_, dry) = run_cli(&core, &["rule", "apply", &file, "--dry-run"]);
+    let diff = data(&dry)["diff"].as_array().unwrap();
+    assert_eq!(diff.len(), 1, "{diff:?}");
+    assert_eq!(
+        (diff[0]["path"].clone(), diff[0]["after"].clone()),
+        (json!("Priorities"), json!({"5": 2}))
+    );
+    let (code, doc) = run_cli(&core, &["rule", "apply", &file, "--allow-unverified"]);
+    assert_eq!(code, 0, "{doc}");
+    assert!(check_names(&doc).contains(&("Priorities read back equal".to_string(), true)));
+    assert_eq!(rule_state(&core, 1)["Priorities"], json!({"5": 2}));
+    // the same file again is a no-op
+    let (_, doc) = run_cli(&core, &["rule", "get", "1"]);
+    let file = temp_json(&core, "prio2.json", &data(&doc)["model"]);
+    let (_, doc) = run_cli(&core, &["rule", "apply", &file, "--allow-unverified"]);
+    assert_eq!(data(&doc)["changed"], false);
+}
