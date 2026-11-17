@@ -1,0 +1,2 @@
+{"Devices": [{"Name": "Demo extra value", "Model": "PacketParserVariable", "HardwareParentId": 20,
+  "DeviceProperties": {"ReadStateScriptPacketParser": "3"}}]}

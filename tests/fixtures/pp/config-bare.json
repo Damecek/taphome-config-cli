@@ -1,0 +1,13 @@
+{
+  "Modules": [
+    {
+      "Name": "Demo meter $[Site]",
+      "Model": "PacketParserModuleHttp",
+      "DeviceProperties": {"IpAddress": "$[Host]", "Port": 80, "UseHttps": false, "InternalPollInterval": 3600000},
+      "Devices": [
+        {"Name": "Demo meter value", "Model": "PacketParserVariable",
+         "DeviceProperties": {"ReadStateScriptPacketParser": "7", "IsReadOnly": true, "Scale": 1.5}}
+      ]
+    }
+  ]
+}

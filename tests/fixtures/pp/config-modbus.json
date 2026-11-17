@@ -1,0 +1,3 @@
+{"ProtocolVersion": 56, "Modules": [{"Name": "Demo modbus", "Model": "ModbusModule",
+  "DeviceProperties": {"SlaveId": 1},
+  "Devices": [{"Name": "Demo modbus value", "Model": "ModbusVariable", "DeviceProperties": {}}]}]}
