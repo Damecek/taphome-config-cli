@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "rea": {
+      "command": "npx",
+      "args": ["-y", "rea-agents@6.9.0", "mcp"],
+      "env": {
+        "REA_JADX_MCP_JAR": "${REA_JADX_MCP_JAR:-${HOME}/.local/share/rea/android/jadx-headless-mcp-0.7.1-all.jar}",
+        "REA_APKTOOL_COMMAND": "${REA_APKTOOL_COMMAND:-/opt/homebrew/bin/apktool}",
+        "REA_ADB_PATH": "${REA_ADB_PATH:-/opt/homebrew/bin/adb}"
+      }
+    }
+  }
+}

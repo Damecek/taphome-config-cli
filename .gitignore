@@ -1,0 +1,12 @@
+# Downloaded APKs, decompiled sources and REA working data: proprietary, never commit
+/work/
+*.apk
+*.xapk
+*.apks
+.rea/
+# Local secrets (TapHome credentials, tokens)
+.env
+.env.*
+!.env.example
+.DS_Store
+node_modules/
