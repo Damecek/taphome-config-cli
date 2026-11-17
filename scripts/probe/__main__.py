@@ -104,7 +104,8 @@ def load_session():
 def store_session(location_id, user, session_id):
     SECRETS.mkdir(parents=True, exist_ok=True)
     p = SECRETS / "session.json"
-    p.write_text(json.dumps({"location_id": location_id, "user": user, "session_id": session_id}))
+    # the Core knows local logins in lower case (the app lower-cases them), so reconnect must match login
+    p.write_text(json.dumps({"location_id": location_id, "user": user.lower(), "session_id": session_id}))
     p.chmod(0o600)
 
 
@@ -155,10 +156,13 @@ async def open_session(cfg) -> client.Session:
 
 # ---------------------------------------------------------------- read-only allowlist
 
-def read_allowlist() -> set:
-    """Requests listed with kind read/subscribe in work/notes/ops-*.yaml, minus any also used for writes."""
+def read_allowlist() -> tuple:
+    """(read-only requests, write requests) from the committed manifests openapi/operations/*.yaml.
+
+    A request class used by any write/action entry is never read-only, even if a read entry shares it.
+    """
     ok, bad = set(), set()
-    for f in sorted((ROOT / "work" / "notes").glob("ops-*.yaml")):
+    for f in sorted((ROOT / "openapi" / "operations").glob("*.yaml")):
         kind = req = None
         for line in f.read_text().splitlines() + ["- id: end"]:
             if line.startswith("- id:"):
@@ -171,11 +175,12 @@ def read_allowlist() -> set:
                 kind = m.group(1)
             elif (m := re.match(r"^  request: (\w+)$", line)):
                 req = m.group(1)
-    return ok - bad
+    return ok - bad, bad
 
 
 def is_allowed(name: str) -> bool:
-    return name.startswith("MessageGet") or name in read_allowlist()
+    ok, bad = read_allowlist()
+    return name in ok or (name.startswith("MessageGet") and name not in bad)
 
 
 # ---------------------------------------------------------------- commands
@@ -222,7 +227,7 @@ async def cmd_sync(cfg, args):
 
 async def cmd_call(cfg, args):
     if not (args.allow_write or is_allowed(args.message)):
-        sys.exit("refused: %s is not in the read-only allowlist (MessageGet* or ops-*.yaml kind read/subscribe). "
+        sys.exit("refused: %s is not in the read-only allowlist (openapi/operations kind read/subscribe, or MessageGet*). "
                  "Pass --allow-write to send it." % args.message)
     fields = json.loads(args.json) if args.json else {}
     async with opened(cfg) as s:

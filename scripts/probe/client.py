@@ -99,7 +99,11 @@ class Session:
                   "IsLocalAccount": True, "ServerClientDeviceId": 0, **_identity()}
         if self.db_hash:
             fields["DbHash"] = self.db_hash
-        self.reconnect = await self.request("MessageReconnectRequest", fields, 20)
+        try:
+            self.reconnect = await self.request("MessageReconnectRequest", fields, 20)
+        except BaseException:
+            await self.__aexit__(None, None, None)  # no caller holds the session yet: close socket and tasks here
+            raise
         self._protocol = self.reconnect.get("CurrentProtocolVersion", 0)
         return self
 

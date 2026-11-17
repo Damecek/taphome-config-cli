@@ -412,7 +412,7 @@ class Codec:
                 _, name, ts, _, _, mwt, zz = specs[tag]
                 try:
                     self._dec_field(out, name, ts, wt, v, mwt, zz)
-                except (CodecError, ValueError, IndexError, TypeError, struct.error) as e:
+                except (CodecError, ValueError, IndexError, TypeError, KeyError, OverflowError, struct.error) as e:
                     # keep going: one undecodable field must not hide the rest of a live message
                     out.setdefault("$errors", []).append(
                         {"field": name, "type": ts, "in": tdef["name"], "wt": wt, "error": str(e), "hex": raw.hex()})

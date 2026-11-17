@@ -53,6 +53,8 @@
     MessageReconnectResponse accepts a RequestsId that differs from the request, the client maps it to the pending reconnect.
     There is no separate initial-sync request: one response carries Ccus, Devices, UserInfo, LocationInfo, CurrentProtocolVersion, CoreVersionString (format YYYY.R.BUILD), permissions with changeset ids, DashboardSets, Dashboards, SmartRules (each element is a serialized TriggerModel), DeviceTimers, DbHash, SmartRuleErrorStatuses and CoreProperties.
     ReconnectResultId: 0 None, 1 Ok, 2 WrongSession (log in again), 3 TooManyConnections, 4 FaultyStorageClient (client cache is invalid, drop it), 5 RemoteAccessDisabled, 6 AppTooOld, 7 NotReady (Core still starting, retry after 10 s), 8 WrongLocationId.
+    Timestamps in the sync (confirmed on Core 2025.2.32396): int64 fields named ...TUtc are .NET ticks (100 ns since 0001-01-01 UTC). ValueLog.ChangedOnTHUtc is TapHome time, seconds since 2016-01-01 UTC.
+    Every configuration write is visible in a fresh sync from a new socket seconds later, so the sync is the way to verify a write.
     Sessions have no expiry field and no refresh message. There is no logout message, the client just closes the socket and forgets the SessionId.
     After success the client sends MessageReceiveAcknowledgement every 4 s and a WebSocket ping every 6 s.
     A reconnect with an unknown SessionId returns WrongSession without CurrentProtocolVersion or CoreVersionString (tested on Core 2025.2.32396), so the Core version cannot be read before login.
@@ -177,7 +179,10 @@
   response: MessageGetBasicCorePropertiesResponse
   broadcasts: []
   summary: Read basic Core properties as generic key/value list.
-  description: 'Request fields: none. Response: MessageGetBasicCorePropertiesResponse with fields Properties (List<GenericProperty>).'
+  description: |-
+    Request fields: none. Response: MessageGetBasicCorePropertiesResponse with fields Properties (List<GenericProperty>).
+    Confirmed on Core 2025.2.32396: about 20 properties, each a Name plus a typed ProtoValue (GenericValue). Names seen: Name, Latitude, Longitude, Version, Core process uptime, TimeZoneId, OS Image Version, Hardware Platform, Current Time, LanguageCode, Runtimes, mDNSName, Currency, CurrencyPositionId, DHCP, IpAddress, NetworkMask, Gateway, DNSServer, MACAddress.
+    All values are strings except Current Time, a uint32 in seconds since 2000-01-01 that equals the Core's local wall-clock time (not UTC).
   minProtocolVersion: 0
   evidence:
   - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetCoreProperties'

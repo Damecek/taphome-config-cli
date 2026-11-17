@@ -118,6 +118,13 @@
     not cache the response, it relies on the device list broadcast. Core older than v66 uses the legacy HttpApiConfig
     format ({Devices:[HttpApiDeviceInfo], TemplateDevices:[]}) and Model "PacketParserModule"; ignore it. A Core that
     cannot handle the content answers MessageGenericResponse with ErrorCode 26.
+    Confirmed on Core 2025.2.32396 for one case only: an HTTP module (PacketParserModuleHttp) with one PacketParserVariable device, sent as a hand-built ConfigJson, with no template XML involved.
+    Module properties IpAddress, Port, StayConnected, InternalPollInterval, UseHttps; device properties ReadStateScriptPacketParser, InternalPollInterval, IsReadOnly. Placeholder ids Id -1 (module) and -2 (device), HardwareParentId 0, empty Guids for CategoryId and ZoneId.
+    The response listed both objects in AddedDevices (no RemovedDevices) and one MessageDeviceListUpdatedBroadcast followed. The Core allocated both ids and set the child's HardwareParentId to the new module id (negative ids are only labels).
+    The module got Interface IHardwareParentModule, DeviceType 7001 and serial PacketParser--<8 hex>. The device got serial PacketParser-Variable-<8 hex>.
+    The Core filled every other property with defaults. The module got 23 keys, among them ReadScriptPacketParser, CustomVariables, VltEpsilons, ServiceAttributesScriptsPacketParser, ServiceActionsScriptsPacketParser, ShouldDoPeriodicWrite, DeviceVariables, WriteScriptPacketParser, TemplateIdentity, User, Password, IgnoreSSLErrors and HttpAuthentification "None". The HTTP module did not keep a StayConnected key.
+    The device's ReadScriptPacketParser was filled with a commented example script. The state script ran at once: the device value (type 62) showed the script result in a sync taken seconds later.
+    Not tested: TCP, UDP, FTP or MQTT modules, Modbus, templates with scripts that reference other devices, partial failure.
   minProtocolVersion: 66
   evidence:
   - 'TapHome.Android: TapHome.Commons.CommunicationHelper.PacketParserCommunicationHelper.AddPreconfiguredModule'
@@ -141,6 +148,7 @@
     PacketParserVariable, PacketParserPushButton, PacketParserSlide, PacketParserHSBLight, PacketParserWhiteLight,
     PacketParserAnalogInput (v78 per ModbusPacketParserAnalogInputMinProtocolVersion), PacketParserBlind. The Core fills in
     default properties; scripts are written afterwards with updateDeviceProperties.
+    Not tested on a live Core. The module-plus-device form of the same message is confirmed, see addPacketParserModule.
   minProtocolVersion: 66
   evidence:
   - 'TapHome.Android: TapHome.Commons.CommunicationHelper.PacketParserCommunicationHelper.AddDevice'
@@ -175,6 +183,7 @@
     meaningful from protocol 31. Properties of the template that no importer step touches (for example the template Name,
     Producer, Description, CcuModel) are not sent, except Name. If the CCU is not a Packet Parser CCU the app refuses to list the
     template (CcuModel must equal "PacketParserCCU").
+    Live result (Core 2025.2.32396): the Core accepts a hand-built ConfigJson without any template XML, and derives the parent from nesting (confirmed, see addPacketParserModule). Reference rewriting inside DeviceVariables and the template Name were not tested.
   minProtocolVersion: 66
   evidence:
   - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Templates.XmlTemplateImport.ReadFromXmlFile / ReadFromZipArchive'
@@ -394,6 +403,7 @@
     CurrentMinute (v70), SecondOfDay (v63 to v70), CurrentSecond (v70), DateRange (v53), and sun variables
     VirtualVariableSunUpDownState, VirtualVariableSunAzimuth, VirtualVariableSunElevation. After the add the app opens the
     settings of the new device; value, unit and so on are written with updateDeviceProperties. The Core allocates the id.
+    Confirmed on Core 2025.2.32396 for VirtualVariableGeneral, see addDevice for the response. The time and sun variable models were not tried.
   minProtocolVersion: 8
   evidence:
   - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddVirtualVariableDialog.AddDevice'

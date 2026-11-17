@@ -24,6 +24,8 @@
     Request: LastRunId = ScriptLastRunValuesIdentifier {ObjectIdType (0 Device, 1 Ccu, 2 Smartrule), ObjectId (int; the TriggerId for smart rules, -1 for an unsaved rule), ScriptKey (string; names which script of a device/CCU, empty for smart rules)}.
     Response class name has a typo in the app ("Reponse"): MessageGetScriptLastRunValuesReponse with LastRunId and Values = ScriptLastRunValues {Values (per-statement snapshots, list of name -> DataType maps), Result (DataType), RunTimestampUtc, RunDuration}. DataType is a tagged union (see the data type table in 04-automations.md).
     The script engine records snapshots at Start/Progress/Finish phases and keeps only the last run in memory on the Core, so the data is empty until the rule has run at least once. Used by the "last run" button in the script editor. Works for formula (type 12), script (type 45) and evaluation rules.
+    Live result (Core 2025.2.32396): for an existing Packet Parser device the call answered with only the echoed LastRunId and no values. After the Core ran a freshly created device script, LastRunId {ObjectIdType 0, ObjectId <device id>, ScriptKey "ReadStateScriptPacketParser"} returned the last run with Result and RunTimestampUtc.
+    Result is a DataType. For a double, SerializerValueTypeId is 4 and SerializerValueBytes holds the IEEE-754 bits of the value as an int64. RunTimestampUtc is a .NET tick count like the other ...TUtc fields. The snapshot list was not decoded.
   minProtocolVersion: 61
   evidence:
   - 'TapHome.Android: TapHome.Commons.CommunicationHelper.LastRunValuesCommunicationHelper.GetLastRunValues'
@@ -69,6 +71,7 @@
     - MessageTriggerModelsDeletedBroadcast: TriggerIds (List<int>) and SmartRulesChangesetId. The client also removes the error status for those ids.
     Both carry the new global smart rule changeset; the client stores it and sends it back on the next reconnect.
     This is the only place a client learns the Core-assigned Id of a rule it just created, since the write response carries no payload.
+    Confirmed on Core 2025.2.32396: one MessageTriggerModelsUpdatedBroadcast after a create, one MessageTriggerModelsDeletedBroadcast after a delete, no subscription needed. New rule ids are not max + 1, see upsertSmartRules.
   minProtocolVersion: 24
   evidence:
   - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast (MessageTriggerModelsUpdatedBroadcast,
@@ -94,6 +97,10 @@
     Saved formulas and scripts are not validated by this call in the client. The Core parses them and reports problems afterwards through the trigger error operations.
     Permissions: the user needs UserSettingsCanEdit on the rule (existing) or CreateSmartRuleCanEdit for the type (new); the Core enforces this.
     Atomicity across the list is unknown; the app sends several rules in one message for bulk enable/disable and priority changes.
+    Confirmed on Core 2025.2.32396 for one create (Id 0, TriggerTypeId 12 formula, Version 13, IsEnabled false, ChangesetId 0, FormulaTriggerParameters with one input variable, one output variable and EvaluationFormula "Va", ValueLogType 62 on both): MessageGenericResponse ErrorCode 1 and one MessageTriggerModelsUpdatedBroadcast.
+    The Core filled TriggerInputs (instant connection, value type 62 to the device) and Priorities ({<device id>: 8}) itself, kept IsEnabled false and raised the changeset. A client does not need to send either field.
+    The Core did not allocate a new id. It reused the id of a soft-deleted rule (a tombstone slot). New rule ids are therefore not max + 1, and a client must find its rule by name and changeset in the broadcast or in the next sync.
+    Not tested: updating an existing rule, enabling a rule, several rules in one message, other rule types.
   minProtocolVersion: 24
   evidence:
   - 'TapHome.Android: TapHome.Commons.SmartRuleCommunicationHelper.UpdateSmartRules'
@@ -116,6 +123,7 @@
     The Core deletes softly (the model keeps IsDeleted = true with a new ChangesetId so offline clients can catch up) and broadcasts MessageTriggerModelsDeletedBroadcast.
     Requires UninstallSmartRuleCanEdit on each rule (checked by the UI; the Core enforces it).
     Disabling is a different operation (upsertSmartRules with IsEnabled = false). Deleting does not remove the rule's permissions rows in the client cache until the permission broadcasts arrive.
+    Confirmed on Core 2025.2.32396: ErrorCode 1 and one MessageTriggerModelsDeletedBroadcast. The rule stays in the list as a tombstone: IsDeleted true, TriggerParameters removed, name, type and version kept, changeset raised, no error status entry. The id slot can be reused by a later create.
   minProtocolVersion: 24
   evidence:
   - 'TapHome.Android: TapHome.Commons.SmartRuleCommunicationHelper.DeleteSmartRules'
@@ -161,9 +169,10 @@
   summary: Read the current errors, warnings and infos of one smart rule, optionally subscribing to changes.
   description: |-
     Request: TriggerId (int), ShouldSubscribe (bool). Response: TriggerErrors (List<TriggerError>).
-    TriggerError: TapHomeTime (int, Core time stamp), ErrorCodeId (TriggerErrorCode), CustomText (string; script ADDERROR/ADDWARNING/ADDINFO text), SeverityId (1 Info, 2 Warning, 3 Error), ErrorAreaId (0 None, 1 LimitingCondition), DeviceIds (List<int>), ErrorSpecifiers (set of code/int pairs, for example the device type or variable type involved).
+    TriggerError: TapHomeTime (int, TapHome time: seconds since 2016-01-01 UTC), ErrorCodeId (TriggerErrorCode), CustomText (string; script ADDERROR/ADDWARNING/ADDINFO text), SeverityId (1 Info, 2 Warning, 3 Error), ErrorAreaId (0 None, 1 LimitingCondition), DeviceIds (List<int>), ErrorSpecifiers (set of code/int pairs, for example the device type or variable type involved).
     TriggerErrorCode values: 1 MissingDevice, 2 MissingAction, 3 MissingVariable, 101-103 Deleted device/action/variable, 201 FormulaParseException, 202 FormulaEvaluationException, 203 LiteralArgumentException, 301-303 push button long/double/triple press not supported, 401-403 hysteresis temperature limit problems.
     This is how a formula or script with a syntax error is reported after saving (code 201 with CustomText holding the parser message).
+    Confirmed on Core 2025.2.32396: ShouldSubscribe false for a freshly created formula rule answered with an empty response (only RequestsId). A response with errors was not seen.
     The app calls this only for existing rules (not new ones) and renews the subscription every 5 seconds with MessageTriggerErrorsSubscribeBroadcastRequest while the rule page is open.
   minProtocolVersion: 71
   evidence:
@@ -430,7 +439,7 @@
   broadcasts: []
   summary: List all week plans (time windows used by the access control feature).
   description: |-
-    No request fields. Response: WeekPlans (WeekPlan[]; Id, Name, Priority, ValidFromTUtc, ValidToTUtc as long ticks/time stamps).
+    No request fields. Response: WeekPlans (WeekPlan[]; Id, Name, Priority, ValidFromTUtc, ValidToTUtc as long .NET ticks, 100 ns since 0001-01-01 UTC; ValidToTUtc of the default plan is DateTime.MaxValue.Ticks, confirmed on Core 2025.2.32396).
     Scope note: week plans are used only by the Access (door access cards) feature in this client (AccessData, AccessWeekPlansPage). They are not the schedule of the WeekSchedule or DailySchedule smart rules, which store their times inside the rule.
   minProtocolVersion: 0
   evidence:
@@ -661,15 +670,13 @@
   request: MessageTapHomeApiDiscoveryRequest
   response: MessageTapHomeApiResponse
   broadcasts: []
-  summary: TapHome public API call that lists exposed devices (sent by the TapHome cloud on behalf of API clients,
-    not by the app).
-  description: 'Part of the TapHome Cloud API / IFTTT-style integration surface. The cloud tunnels REST calls from
-    third parties to the Core as these messages (some implement IServiceTunnelMessage). Siblings: MessageTapHomeApiLocationInfoRequest
-    (location name and info), MessageTapHomeApiGetDeviceValueRequest (DeviceId, OnlyThisType), MessageTapHomeApiGetMultipleDeviceValuesRequest
-    (Devices list, AllDevices flag), MessageTapHomeApiSetDeviceValueRequest (a MessageDeviceAction with Values:
-    Dictionary<ValueLogType,double>). All answer with MessageTapHomeApiResponse (TapHomeApiResponse payload). These
-    are day-to-day control and discovery; out of scope for the configuration CLI. Which devices are exposed is configured
-    per device in the app (TapHomeApiExposeDevicesPage) through ordinary device property updates.'
+  summary: TapHome public API call that lists exposed devices (tunnel only, sent by the TapHome cloud on behalf of API clients, not by the app).
+  description: |-
+    Part of the TapHome Cloud API / IFTTT-style integration surface. The cloud tunnels REST calls from third parties to the Core as these messages (some implement IServiceTunnelMessage).
+    Siblings: MessageTapHomeApiLocationInfoRequest (location name and info), MessageTapHomeApiGetDeviceValueRequest (DeviceId, OnlyThisType), MessageTapHomeApiGetMultipleDeviceValuesRequest (Devices list, AllDevices flag), MessageTapHomeApiSetDeviceValueRequest (a MessageDeviceAction with Values: Dictionary<ValueLogType,double>).
+    All answer with MessageTapHomeApiResponse (TapHomeApiResponse payload). These are day-to-day control and discovery; out of scope for the configuration CLI.
+    Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it.
+    Which devices are exposed is configured per device in the app (TapHomeApiExposeDevicesPage) through ordinary device property updates.
   minProtocolVersion: 34
   evidence:
   - 'TapHome.Core.Lib.Model: MessageTapHomeApiDiscoveryRequest, MessageTapHomeApiResponse'

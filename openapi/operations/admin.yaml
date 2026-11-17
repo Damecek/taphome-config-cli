@@ -74,9 +74,10 @@
   request: MessageTapHomeApiGetDeviceValueRequest
   response: MessageTapHomeApiResponse
   broadcasts: []
-  summary: Read the values of one exposed device by external id.
-  description: 'Request fields: DeviceId (int), OnlyThisType (ValueLogType?). Response: MessageTapHomeApiResponse
-    with fields TapHomeApiResponse (TapHomeApiResponseBase).'
+  summary: Read the values of one exposed device by external id (tunnel only).
+  description: |-
+    Request fields: DeviceId (int), OnlyThisType (ValueLogType?). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+    Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it. Not tested with an exposed device id.
   minProtocolVersion: 34
   evidence:
   - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiGetDeviceValueRequest'
@@ -87,9 +88,10 @@
   request: MessageTapHomeApiGetMultipleDeviceValuesRequest
   response: MessageTapHomeApiResponse
   broadcasts: []
-  summary: Read values of several or all exposed devices (tunnel protocol version 2+).
-  description: 'Request fields: Devices (List<MessageTapHomeApiGetMultipleDeviceValuesRequestElement>), AllDevices
-    (bool). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).'
+  summary: Read values of several or all exposed devices (tunnel only, tunnel protocol version 2+).
+  description: |-
+    Request fields: Devices (List<MessageTapHomeApiGetMultipleDeviceValuesRequestElement>), AllDevices (bool). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+    Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it. The test sent AllDevices true.
   minProtocolVersion: 34
   evidence:
   - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiGetMultipleDeviceValuesRequest'
@@ -100,8 +102,10 @@
   request: MessageTapHomeApiLocationInfoRequest
   response: MessageTapHomeApiResponse
   broadcasts: []
-  summary: Return location id, name and TapHome API version.
-  description: 'Request fields: none. Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).'
+  summary: Return location id, name and TapHome API version (tunnel only).
+  description: |-
+    Request fields: none. Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+    Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it.
   minProtocolVersion: 34
   evidence:
   - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiLocationInfoRequest'
@@ -112,9 +116,11 @@
   request: MessageTapHomeApiSetDeviceValueRequest
   response: MessageTapHomeApiResponse
   broadcasts: []
-  summary: Write device values through the TapHome API (control only, not configuration).
-  description: 'Request fields: Values (Dictionary<ValueLogType, double>). Response: MessageTapHomeApiResponse with
-    fields TapHomeApiResponse (TapHomeApiResponseBase).'
+  summary: Write device values through the TapHome API (tunnel only, control only, not configuration).
+  description: |-
+    Request fields: Values (Dictionary<ValueLogType, double>). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+    Tunnel message like the other TapHomeApi messages, whose reads got no answer on a client session (see tapHomeApiLocationInfo). This write was not tried.
+    The same request class is also listed as setDeviceValuesByType, which is the primary path entry.
   minProtocolVersion: 34
   evidence:
   - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiSetDeviceValueRequest'

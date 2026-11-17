@@ -420,6 +420,9 @@ paths:
         (type specific defaults such as OnStateName/OffStateName/OnStateIconId/OffStateIconId/SafeValues, produced by DeviceTypeHelper),
         DeviceTypeId (int DeviceType, 0 for none), CcuId (the app always sends null, so the Core attaches the device to the virtual CCU).
         SerialNumber is never sent. The Core allocates the int device id. Response: AddedDevice (full GenericDevice) and Ccus (full CCU list).
+        Confirmed on Core 2025.2.32396 for a virtual variable: DeviceName, Icon 0, Interface "Variable", Model "VirtualVariableGeneral", DeviceTypeId 0, no CcuId and no DeviceProperties is enough.
+        The Core attached the device to the virtual CCU (CcuId 1 there), generated the serial number (VIRT-<guid>) and filled the default DeviceProperties (LogValues, IsIgnored, DeviceType, ZoneId, CategoryId, HardwareParentId, SerializedValueLogTypeConversions, IsReadOnly, IconId).
+        One MessageDeviceListUpdatedBroadcast followed. The write persisted at once: a new socket saw the device seconds later. Other models and interfaces were not tried.
         The app then opens the settings page for the new device, where the user edits properties with updateMultipleDevicesProperties.
         Physical devices (TapHome Bus, Modbus, Packet Parser, ZigBee, KNX) are not created with this message; see tapHomeBusConfig and
         the interface specific config messages. Protocol gates: device type ids need protocol 26 (4 for ids that existed before), tunable
@@ -463,7 +466,16 @@ paths:
       - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddVirtualVariableDialog.AddDevice'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.ProtocolVersions.VariableMinProtocolVersion'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: 'exercised for one case only: Interface Variable, Model VirtualVariableGeneral, DeviceTypeId 0, no
+          CcuId and no DeviceProperties; the Core allocated the id, attached the device to the virtual CCU, generated
+          a VIRT-<guid> serial and filled default properties; one MessageDeviceListUpdatedBroadcast; other virtual
+          models not tried (addVirtualDevice and addVirtualVariable share this request class)'
       x-variants:
       - id: addDevice
         summary: Create a device (the app uses it only for virtual devices and variables).
@@ -475,6 +487,9 @@ paths:
           (type specific defaults such as OnStateName/OffStateName/OnStateIconId/OffStateIconId/SafeValues, produced by DeviceTypeHelper),
           DeviceTypeId (int DeviceType, 0 for none), CcuId (the app always sends null, so the Core attaches the device to the virtual CCU).
           SerialNumber is never sent. The Core allocates the int device id. Response: AddedDevice (full GenericDevice) and Ccus (full CCU list).
+          Confirmed on Core 2025.2.32396 for a virtual variable: DeviceName, Icon 0, Interface "Variable", Model "VirtualVariableGeneral", DeviceTypeId 0, no CcuId and no DeviceProperties is enough.
+          The Core attached the device to the virtual CCU (CcuId 1 there), generated the serial number (VIRT-<guid>) and filled the default DeviceProperties (LogValues, IsIgnored, DeviceType, ZoneId, CategoryId, HardwareParentId, SerializedValueLogTypeConversions, IsReadOnly, IconId).
+          One MessageDeviceListUpdatedBroadcast followed. The write persisted at once: a new socket saw the device seconds later. Other models and interfaces were not tried.
           The app then opens the settings page for the new device, where the user edits properties with updateMultipleDevicesProperties.
           Physical devices (TapHome Bus, Modbus, Packet Parser, ZigBee, KNX) are not created with this message; see tapHomeBusConfig and
           the interface specific config messages. Protocol gates: device type ids need protocol 26 (4 for ids that existed before), tunable
@@ -504,6 +519,7 @@ paths:
           CurrentMinute (v70), SecondOfDay (v63 to v70), CurrentSecond (v70), DateRange (v53), and sun variables
           VirtualVariableSunUpDownState, VirtualVariableSunAzimuth, VirtualVariableSunElevation. After the add the app opens the
           settings of the new device; value, unit and so on are written with updateDeviceProperties. The Core allocates the id.
+          Confirmed on Core 2025.2.32396 for VirtualVariableGeneral, see addDevice for the response. The time and sun variable models were not tried.
   /Core/messages/MessageAddGlobalUserRequest:
     post:
       operationId: addGlobalUser
@@ -1354,6 +1370,8 @@ paths:
         (the app then removes the device from its cache), 15 means failure, 3 means refused.
         The module replace flow deletes the module and its terminal devices with separate calls, so assume children are not removed implicitly.
         Persists immediately.
+        Confirmed on Core 2025.2.32396 with ForceDelete false: ErrorCode 1 and one MessageDeviceListUpdatedBroadcast for a virtual variable, a Packet Parser device, and (after its child was deleted) a Packet Parser module.
+        The id of a deleted device is freed: the highest device id went back to its old value, so a later create can reuse an id. ForceDelete true was not tried.
       security:
       - coreSession: []
       requestBody:
@@ -1380,7 +1398,15 @@ paths:
       - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.DeleteDevice'
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteDevice / DeleteDevices'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: ForceDelete false, ErrorCode 1 and one MessageDeviceListUpdatedBroadcast for a virtual variable, a
+          Packet Parser device and, after its child was deleted, a Packet Parser module; the freed device id is
+          reused later; ForceDelete true not tried
   /Core/messages/MessageDeleteDevicesRequest:
     post:
       operationId: deleteDevices
@@ -1863,6 +1889,7 @@ paths:
         The Core deletes softly (the model keeps IsDeleted = true with a new ChangesetId so offline clients can catch up) and broadcasts MessageTriggerModelsDeletedBroadcast.
         Requires UninstallSmartRuleCanEdit on each rule (checked by the UI; the Core enforces it).
         Disabling is a different operation (upsertSmartRules with IsEnabled = false). Deleting does not remove the rule's permissions rows in the client cache until the permission broadcasts arrive.
+        Confirmed on Core 2025.2.32396: ErrorCode 1 and one MessageTriggerModelsDeletedBroadcast. The rule stays in the list as a tombstone: IsDeleted true, TriggerParameters removed, name, type and version kept, changeset raised, no error status entry. The id slot can be reused by a later create.
       security:
       - coreSession: []
       requestBody:
@@ -1890,7 +1917,14 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteSmartRules'
       - 'TapHome.Android: TapHome.Commons.BottomSheetHelper (uninstall item)'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: ErrorCode 1 and one MessageTriggerModelsDeletedBroadcast; the rule stays as a tombstone (IsDeleted
+          true, parameters removed, changeset raised); tried for one rule
   /Core/messages/MessageDeleteUserPermissionsForDashboardRequest:
     post:
       operationId: deleteUserPermissionsForDashboard
@@ -2562,8 +2596,10 @@ paths:
       tags:
       - core
       summary: Read basic Core properties as generic key/value list.
-      description: 'Request fields: none. Response: MessageGetBasicCorePropertiesResponse with fields Properties
-        (List<GenericProperty>).'
+      description: |-
+        Request fields: none. Response: MessageGetBasicCorePropertiesResponse with fields Properties (List<GenericProperty>).
+        Confirmed on Core 2025.2.32396: about 20 properties, each a Name plus a typed ProtoValue (GenericValue). Names seen: Name, Latitude, Longitude, Version, Core process uptime, TimeZoneId, OS Image Version, Hardware Platform, Current Time, LanguageCode, Runtimes, mDNSName, Currency, CurrencyPositionId, DHCP, IpAddress, NetworkMask, Gateway, DNSServer, MACAddress.
+        All values are strings except Current Time, a uint32 in seconds since 2000-01-01 that equals the Core's local wall-clock time (not UTC).
       security:
       - coreSession: []
       requestBody:
@@ -2871,6 +2907,7 @@ paths:
         UI, DI, UO, DO, BL, NTC, DMX, AO, ...). Renewal of the subscription uses MessageDeviceErrorsSubscribeBroadcastRequest {DeviceId, OriginId}
         every 5 seconds; updates arrive as MessageDeviceErrorsSubscribedBroadcast. The aggregate state is also in the device value DeviceStatus
         (value type 7): below 256 a simple enum, otherwise bytes 1..3 count errors, warnings and infos.
+        Confirmed on Core 2025.2.32396 with ShouldSubscribe false: a healthy device (OriginId 0) and a Packet Parser module (OriginId 1) both answered with empty lists, before and after a script ran. A response with errors was not seen.
       security:
       - coreSession: []
       requestBody:
@@ -2906,7 +2943,8 @@ paths:
         date: '2026-11-17'
         core: 2025.2.32396
         protocol: 89
-        note: empty response for a healthy device
+        note: empty response for a healthy device (OriginId 0) and for a Packet Parser module (OriginId 1), with
+          ShouldSubscribe false; a response with errors was not seen
   /Core/messages/MessageGetDeviceLogRequest:
     post:
       operationId: getDeviceLog
@@ -2914,7 +2952,7 @@ paths:
       - io-check
       summary: Read the recent value-change log of a device and optionally subscribe to new entries.
       description: |-
-        Fields: DeviceId, ShouldSubscribe. Response: ValueChangedLogEntries[] each with TapHomeTime (seconds based custom epoch), Values (list of value type id to value),
+        Fields: DeviceId, ShouldSubscribe. Response: ValueChangedLogEntries[] each with TapHomeTime (TapHome time, seconds since 2016-01-01 UTC, confirmed on Core 2025.2.32396), Values (list of value type id to value),
         ChangeOriginId (ChangeOrigin enum: 1 manual, 2 app, 3 smart rule, 4 startup, ...) and HandlingStatus (which smart rule reacted).
         Subscription is kept alive by resending MessageDeviceLogSubscribeBroadcastRequest {DeviceId} every 5 seconds; entries then arrive as
         MessageDeviceLogSubscribedBroadcast {DeviceId, AddedValueChangedLogEntries[]}. The subscription lapses when the client stops renewing.
@@ -3350,6 +3388,8 @@ paths:
         Request: LastRunId = ScriptLastRunValuesIdentifier {ObjectIdType (0 Device, 1 Ccu, 2 Smartrule), ObjectId (int; the TriggerId for smart rules, -1 for an unsaved rule), ScriptKey (string; names which script of a device/CCU, empty for smart rules)}.
         Response class name has a typo in the app ("Reponse"): MessageGetScriptLastRunValuesReponse with LastRunId and Values = ScriptLastRunValues {Values (per-statement snapshots, list of name -> DataType maps), Result (DataType), RunTimestampUtc, RunDuration}. DataType is a tagged union (see the data type table in 04-automations.md).
         The script engine records snapshots at Start/Progress/Finish phases and keeps only the last run in memory on the Core, so the data is empty until the rule has run at least once. Used by the "last run" button in the script editor. Works for formula (type 12), script (type 45) and evaluation rules.
+        Live result (Core 2025.2.32396): for an existing Packet Parser device the call answered with only the echoed LastRunId and no values. After the Core ran a freshly created device script, LastRunId {ObjectIdType 0, ObjectId <device id>, ScriptKey "ReadStateScriptPacketParser"} returned the last run with Result and RunTimestampUtc.
+        Result is a DataType. For a double, SerializerValueTypeId is 4 and SerializerValueBytes holds the IEEE-754 bits of the value as an int64. RunTimestampUtc is a .NET tick count like the other ...TUtc fields. The snapshot list was not decoded.
       security:
       - coreSession: []
       requestBody:
@@ -3388,8 +3428,10 @@ paths:
         date: '2026-11-17'
         core: 2025.2.32396
         protocol: 89
-        note: answers with the echoed LastRunId and no values for a Packet Parser device; script key names and value
-          layout not exercised
+        note: empty for an existing device before it ran a script; after a freshly created Packet Parser device
+          script ran, LastRunId with ObjectIdType 0 and ScriptKey ReadStateScriptPacketParser returned Result (DataType,
+          SerializerValueTypeId 4 = double, bytes = IEEE-754 bits as int64) and RunTimestampUtc; snapshot list not
+          decoded
   /Core/messages/MessageGetServiceAttributeValuesRequest:
     post:
       operationId: getServiceAttributeValues
@@ -3607,9 +3649,10 @@ paths:
       summary: Read the current errors, warnings and infos of one smart rule, optionally subscribing to changes.
       description: |-
         Request: TriggerId (int), ShouldSubscribe (bool). Response: TriggerErrors (List<TriggerError>).
-        TriggerError: TapHomeTime (int, Core time stamp), ErrorCodeId (TriggerErrorCode), CustomText (string; script ADDERROR/ADDWARNING/ADDINFO text), SeverityId (1 Info, 2 Warning, 3 Error), ErrorAreaId (0 None, 1 LimitingCondition), DeviceIds (List<int>), ErrorSpecifiers (set of code/int pairs, for example the device type or variable type involved).
+        TriggerError: TapHomeTime (int, TapHome time: seconds since 2016-01-01 UTC), ErrorCodeId (TriggerErrorCode), CustomText (string; script ADDERROR/ADDWARNING/ADDINFO text), SeverityId (1 Info, 2 Warning, 3 Error), ErrorAreaId (0 None, 1 LimitingCondition), DeviceIds (List<int>), ErrorSpecifiers (set of code/int pairs, for example the device type or variable type involved).
         TriggerErrorCode values: 1 MissingDevice, 2 MissingAction, 3 MissingVariable, 101-103 Deleted device/action/variable, 201 FormulaParseException, 202 FormulaEvaluationException, 203 LiteralArgumentException, 301-303 push button long/double/triple press not supported, 401-403 hysteresis temperature limit problems.
         This is how a formula or script with a syntax error is reported after saving (code 201 with CustomText holding the parser message).
+        Confirmed on Core 2025.2.32396: ShouldSubscribe false for a freshly created formula rule answered with an empty response (only RequestsId). A response with errors was not seen.
         The app calls this only for existing rules (not new ones) and renews the subscription every 5 seconds with MessageTriggerErrorsSubscribeBroadcastRequest while the rule page is open.
       security:
       - coreSession: []
@@ -3647,7 +3690,8 @@ paths:
         date: '2026-11-17'
         core: 2025.2.32396
         protocol: 89
-        note: empty response for a trigger without errors (ShouldSubscribe false)
+        note: empty response for a trigger without errors (ShouldSubscribe false), also for a freshly created formula
+          rule; a response with errors was not seen
   /Core/messages/MessageGetUsedTcpPortsRequest:
     post:
       operationId: getUsedTcpPorts
@@ -4255,7 +4299,7 @@ paths:
       - schedules
       summary: List all week plans (time windows used by the access control feature).
       description: |-
-        No request fields. Response: WeekPlans (WeekPlan[]; Id, Name, Priority, ValidFromTUtc, ValidToTUtc as long ticks/time stamps).
+        No request fields. Response: WeekPlans (WeekPlan[]; Id, Name, Priority, ValidFromTUtc, ValidToTUtc as long .NET ticks, 100 ns since 0001-01-01 UTC; ValidToTUtc of the default plan is DateTime.MaxValue.Ticks, confirmed on Core 2025.2.32396).
         Scope note: week plans are used only by the Access (door access cards) feature in this client (AccessData, AccessWeekPlansPage). They are not the schedule of the WeekSchedule or DailySchedule smart rules, which store their times inside the rule.
       security:
       - coreSession: []
@@ -4314,6 +4358,13 @@ paths:
         not cache the response, it relies on the device list broadcast. Core older than v66 uses the legacy HttpApiConfig
         format ({Devices:[HttpApiDeviceInfo], TemplateDevices:[]}) and Model "PacketParserModule"; ignore it. A Core that
         cannot handle the content answers MessageGenericResponse with ErrorCode 26.
+        Confirmed on Core 2025.2.32396 for one case only: an HTTP module (PacketParserModuleHttp) with one PacketParserVariable device, sent as a hand-built ConfigJson, with no template XML involved.
+        Module properties IpAddress, Port, StayConnected, InternalPollInterval, UseHttps; device properties ReadStateScriptPacketParser, InternalPollInterval, IsReadOnly. Placeholder ids Id -1 (module) and -2 (device), HardwareParentId 0, empty Guids for CategoryId and ZoneId.
+        The response listed both objects in AddedDevices (no RemovedDevices) and one MessageDeviceListUpdatedBroadcast followed. The Core allocated both ids and set the child's HardwareParentId to the new module id (negative ids are only labels).
+        The module got Interface IHardwareParentModule, DeviceType 7001 and serial PacketParser--<8 hex>. The device got serial PacketParser-Variable-<8 hex>.
+        The Core filled every other property with defaults. The module got 23 keys, among them ReadScriptPacketParser, CustomVariables, VltEpsilons, ServiceAttributesScriptsPacketParser, ServiceActionsScriptsPacketParser, ShouldDoPeriodicWrite, DeviceVariables, WriteScriptPacketParser, TemplateIdentity, User, Password, IgnoreSSLErrors and HttpAuthentification "None". The HTTP module did not keep a StayConnected key.
+        The device's ReadScriptPacketParser was filled with a commented example script. The state script ran at once: the device value (type 62) showed the script result in a sync taken seconds later.
+        Not tested: TCP, UDP, FTP or MQTT modules, Modbus, templates with scripts that reference other devices, partial failure.
 
         This message is used for several purposes. Variants:
         - `addPacketParserModule`: Create a Packet Parser module (one target host and protocol) by sending a one-module TemplateConfiguration JSON.
@@ -4362,7 +4413,17 @@ paths:
       - 'TapHome.Android: TapHome.Commons.CommunicationHelper.PacketParserCommunicationHelper.AddTemplateDevices(TemplateConfiguration)'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageHttpApiConfigRequest'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: 'exercised for one case only: HTTP module (PacketParserModuleHttp) with one PacketParserVariable device,
+          hand-built ConfigJson with ProtocolVersion 66 and negative placeholder ids, no template XML; AddedDevices
+          listed both, the Core set the child''s HardwareParentId and filled the other properties; not tried for
+          TCP, UDP, FTP, MQTT, Modbus (ModbusConfigRequest is a different class) or the devices-only form (addPacketParserDevice,
+          importPacketParserTemplate and addTemplateDevicesToExistingPacketParserModule share this request class)'
       x-variants:
       - id: addPacketParserModule
         summary: Create a Packet Parser module (one target host and protocol) by sending a one-module TemplateConfiguration
@@ -4378,6 +4439,13 @@ paths:
           not cache the response, it relies on the device list broadcast. Core older than v66 uses the legacy HttpApiConfig
           format ({Devices:[HttpApiDeviceInfo], TemplateDevices:[]}) and Model "PacketParserModule"; ignore it. A Core that
           cannot handle the content answers MessageGenericResponse with ErrorCode 26.
+          Confirmed on Core 2025.2.32396 for one case only: an HTTP module (PacketParserModuleHttp) with one PacketParserVariable device, sent as a hand-built ConfigJson, with no template XML involved.
+          Module properties IpAddress, Port, StayConnected, InternalPollInterval, UseHttps; device properties ReadStateScriptPacketParser, InternalPollInterval, IsReadOnly. Placeholder ids Id -1 (module) and -2 (device), HardwareParentId 0, empty Guids for CategoryId and ZoneId.
+          The response listed both objects in AddedDevices (no RemovedDevices) and one MessageDeviceListUpdatedBroadcast followed. The Core allocated both ids and set the child's HardwareParentId to the new module id (negative ids are only labels).
+          The module got Interface IHardwareParentModule, DeviceType 7001 and serial PacketParser--<8 hex>. The device got serial PacketParser-Variable-<8 hex>.
+          The Core filled every other property with defaults. The module got 23 keys, among them ReadScriptPacketParser, CustomVariables, VltEpsilons, ServiceAttributesScriptsPacketParser, ServiceActionsScriptsPacketParser, ShouldDoPeriodicWrite, DeviceVariables, WriteScriptPacketParser, TemplateIdentity, User, Password, IgnoreSSLErrors and HttpAuthentification "None". The HTTP module did not keep a StayConnected key.
+          The device's ReadScriptPacketParser was filled with a commented example script. The state script ran at once: the device value (type 62) showed the script result in a sync taken seconds later.
+          Not tested: TCP, UDP, FTP or MQTT modules, Modbus, templates with scripts that reference other devices, partial failure.
       - id: addPacketParserDevice
         summary: Add one empty Packet Parser device under an existing module.
         description: |-
@@ -4388,6 +4456,7 @@ paths:
           PacketParserVariable, PacketParserPushButton, PacketParserSlide, PacketParserHSBLight, PacketParserWhiteLight,
           PacketParserAnalogInput (v78 per ModbusPacketParserAnalogInputMinProtocolVersion), PacketParserBlind. The Core fills in
           default properties; scripts are written afterwards with updateDeviceProperties.
+          Not tested on a live Core. The module-plus-device form of the same message is confirmed, see addPacketParserModule.
       - id: importPacketParserTemplate
         summary: Import a Packet Parser template. The app parses the XML locally and sends the finished module with
           all devices as one JSON message.
@@ -4410,6 +4479,7 @@ paths:
           meaningful from protocol 31. Properties of the template that no importer step touches (for example the template Name,
           Producer, Description, CcuModel) are not sent, except Name. If the CCU is not a Packet Parser CCU the app refuses to list the
           template (CcuModel must equal "PacketParserCCU").
+          Live result (Core 2025.2.32396): the Core accepts a hand-built ConfigJson without any template XML, and derives the parent from nesting (confirmed, see addPacketParserModule). Reference rewriting inside DeviceVariables and the template Name were not tested.
       - id: addTemplateDevicesToExistingPacketParserModule
         summary: Add several devices that are not wrapped in a module to an existing module.
         description: |-
@@ -4530,7 +4600,6 @@ paths:
       operationId: login
       tags:
       - session
-      - devices
       summary: Log in with a Core-local account (or a cloud account) and receive a SessionId.
       description: |-
         Open ws://<core>/Core, send one MessageBase carrying MessageLoginRequest with RequestsId 0, wait for MessageLoginResponse, then close this socket and keep SessionId.
@@ -4543,10 +4612,6 @@ paths:
         The hash is replayable on the LAN (plain ws://), so treat it as a secret.
         MessageLoginResponse.LoginResultId: 0 None, 1 Ok, 2 WrongPassword, 3 WrongLogin, 4 WrongAuthToken, 5 Deleted, 6 AppTooOld.
         Login is exempt from the receive acknowledgement rule.
-
-        This message is used for several purposes. Variants:
-        - `login`: Log in with a Core-local account (or a cloud account) and receive a SessionId.
-        - `getDeviceListOnLogin`: The full interface and device model reaches the client inside the login response.
       security: []
       requestBody:
         required: true
@@ -4575,8 +4640,6 @@ paths:
       - 'TapHome.Android: TapHome.Commons.ApplicationManager.TryLoginGlobaUserToEndpointAsync'
       - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Password.PasswordHash'
       - 'TapHome.Core.Lib.Model: MessageLoginRequest, MessageLoginResponse'
-      - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnect'
-      - 'TapHome.Core.Lib.Model: MessageLoginResponse, MessageReconnectResponse'
       x-confidence: observed-in-code
       x-verified: true
       x-verification:
@@ -4585,28 +4648,6 @@ paths:
         core: 2025.2.32396
         protocol: 89
         note: LoginResultId 1 on a throwaway /Core socket; SessionId returned
-      x-variants:
-      - id: login
-        summary: Log in with a Core-local account (or a cloud account) and receive a SessionId.
-        description: |-
-          Open ws://<core>/Core, send one MessageBase carrying MessageLoginRequest with RequestsId 0, wait for MessageLoginResponse, then close this socket and keep SessionId.
-          The login socket is not the working socket: the session is used on a second /Core socket through reconnect.
-          Local account: LoginOrEmail is the user name (lower-case), PasswordHashOrAuthorizationToken is PasswordHash(password, 2), IsLocalAccount is true.
-          Cloud account: LoginOrEmail is the account e-mail, the secret is the per-location authorization token (a Guid from the cloud API), IsLocalAccount is false.
-          LocationId must equal the Core location Guid (learn it from /Identify or UDP discovery), otherwise the client treats the login as failed.
-          ClientProtocolVersion is 89 for the Official app line.
-          PasswordHash: lower-case hex of SHA-512 applied twice. The input of the first round is the UTF-8 text of the secret followed by a fixed constant compiled into the app (see docs/auth.md). An empty secret is sent as null.
-          The hash is replayable on the LAN (plain ws://), so treat it as a secret.
-          MessageLoginResponse.LoginResultId: 0 None, 1 Ok, 2 WrongPassword, 3 WrongLogin, 4 WrongAuthToken, 5 Deleted, 6 AppTooOld.
-          Login is exempt from the receive acknowledgement rule.
-      - id: getDeviceListOnLogin
-        summary: The full interface and device model reaches the client inside the login response.
-        description: |-
-          There is no "get all devices" request. MessageLoginResponse carries Ccus (GenericCcu[]), Devices (GenericDevice[]) and DeviceTimers.
-          On a reconnect the same data arrives in MessageReconnectResponse (Ccus, Devices, plus changeset ids and smart rules).
-          Each GenericDevice already holds identity (ID, Name, Icon, Model, Interface, SerialNumber, HardwareParentId, ZoneId, CategoryId,
-          DeviceType int id), the property dictionary (DeviceProperties, string to string), CurrentValues (ValueLog per value type id),
-          SupportedValueLogTypes and SupportedActionTypes. Transport and login details are covered by the transport notes.
   /Core/messages/MessageLongRunningTaskCancelRequest:
     post:
       operationId: cancelLongRunningTask
@@ -4934,6 +4975,7 @@ paths:
       operationId: reconnect
       tags:
       - session
+      - devices
       - automations
       summary: Present the SessionId on a new /Core socket and receive the initial sync (devices, interfaces, permissions,
         dashboards, smart rules, Core properties).
@@ -4943,6 +4985,8 @@ paths:
         MessageReconnectResponse accepts a RequestsId that differs from the request, the client maps it to the pending reconnect.
         There is no separate initial-sync request: one response carries Ccus, Devices, UserInfo, LocationInfo, CurrentProtocolVersion, CoreVersionString (format YYYY.R.BUILD), permissions with changeset ids, DashboardSets, Dashboards, SmartRules (each element is a serialized TriggerModel), DeviceTimers, DbHash, SmartRuleErrorStatuses and CoreProperties.
         ReconnectResultId: 0 None, 1 Ok, 2 WrongSession (log in again), 3 TooManyConnections, 4 FaultyStorageClient (client cache is invalid, drop it), 5 RemoteAccessDisabled, 6 AppTooOld, 7 NotReady (Core still starting, retry after 10 s), 8 WrongLocationId.
+        Timestamps in the sync (confirmed on Core 2025.2.32396): int64 fields named ...TUtc are .NET ticks (100 ns since 0001-01-01 UTC). ValueLog.ChangedOnTHUtc is TapHome time, seconds since 2016-01-01 UTC.
+        Every configuration write is visible in a fresh sync from a new socket seconds later, so the sync is the way to verify a write.
         Sessions have no expiry field and no refresh message. There is no logout message, the client just closes the socket and forgets the SessionId.
         After success the client sends MessageReceiveAcknowledgement every 4 s and a WebSocket ping every 6 s.
         A reconnect with an unknown SessionId returns WrongSession without CurrentProtocolVersion or CoreVersionString (tested on Core 2025.2.32396), so the Core version cannot be read before login.
@@ -4950,6 +4994,7 @@ paths:
 
         This message is used for several purposes. Variants:
         - `reconnect`: Present the SessionId on a new /Core socket and receive the initial sync (devices, interfaces, permissions, dashboards, smart rules, Core properties).
+        - `getDeviceListOnLogin`: The full interface and device model reaches the client inside the reconnect response.
         - `listSmartRules`: Load all smart rules (triggers), per-type schema versions and error statuses as part of the session handshake.
       security:
       - coreSession: []
@@ -4980,6 +5025,8 @@ paths:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnect'
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnectResultNotOK'
       - 'TapHome.Core.Lib.Model: MessageReconnectRequest, MessageReconnectResponse'
+      - 'TapHome.Core.Lib.Model: MessageLoginResponse, MessageReconnectResponse'
+      - 'Live test 2026-11-17 (Core 2025.2.32396): the device list is in the reconnect response'
       x-confidence: observed-in-code
       x-verified: true
       x-verification:
@@ -4999,10 +5046,20 @@ paths:
           MessageReconnectResponse accepts a RequestsId that differs from the request, the client maps it to the pending reconnect.
           There is no separate initial-sync request: one response carries Ccus, Devices, UserInfo, LocationInfo, CurrentProtocolVersion, CoreVersionString (format YYYY.R.BUILD), permissions with changeset ids, DashboardSets, Dashboards, SmartRules (each element is a serialized TriggerModel), DeviceTimers, DbHash, SmartRuleErrorStatuses and CoreProperties.
           ReconnectResultId: 0 None, 1 Ok, 2 WrongSession (log in again), 3 TooManyConnections, 4 FaultyStorageClient (client cache is invalid, drop it), 5 RemoteAccessDisabled, 6 AppTooOld, 7 NotReady (Core still starting, retry after 10 s), 8 WrongLocationId.
+          Timestamps in the sync (confirmed on Core 2025.2.32396): int64 fields named ...TUtc are .NET ticks (100 ns since 0001-01-01 UTC). ValueLog.ChangedOnTHUtc is TapHome time, seconds since 2016-01-01 UTC.
+          Every configuration write is visible in a fresh sync from a new socket seconds later, so the sync is the way to verify a write.
           Sessions have no expiry field and no refresh message. There is no logout message, the client just closes the socket and forgets the SessionId.
           After success the client sends MessageReceiveAcknowledgement every 4 s and a WebSocket ping every 6 s.
           A reconnect with an unknown SessionId returns WrongSession without CurrentProtocolVersion or CoreVersionString (tested on Core 2025.2.32396), so the Core version cannot be read before login.
           A client without a cached DbHash gets FaultyStorageClient (4) together with the current DbHash and must send the reconnect request again with that DbHash. The second response has ReconnectResultId 1 and the complete configuration.
+      - id: getDeviceListOnLogin
+        summary: The full interface and device model reaches the client inside the reconnect response.
+        description: |-
+          There is no "get all devices" request. Confirmed on Core 2025.2.32396: the complete device and interface list arrives in MessageReconnectResponse (Ccus, Devices, DeviceTimers, plus changeset ids and smart rules), after the client reconnects with the DbHash from the first (ReconnectResultId 4) response.
+          The app code also lists Ccus, Devices and DeviceTimers on MessageLoginResponse. The test did not look for devices in the login response, so treat the reconnect response as the only source.
+          Each GenericDevice already holds identity (ID, Name, Icon, Model, Interface, SerialNumber, HardwareParentId, ZoneId, CategoryId,
+          DeviceType int id), the property dictionary (DeviceProperties, string to string), CurrentValues (ValueLog per value type id),
+          SupportedValueLogTypes and SupportedActionTypes. Transport and login details are covered by the transport notes.
       - id: listSmartRules
         summary: Load all smart rules (triggers), per-type schema versions and error statuses as part of the session
           handshake.
@@ -5661,15 +5718,14 @@ paths:
       operationId: tapHomeApiDiscovery
       tags:
       - taphome-api
-      summary: TapHome public API call that lists exposed devices (sent by the TapHome cloud on behalf of API clients,
-        not by the app).
-      description: 'Part of the TapHome Cloud API / IFTTT-style integration surface. The cloud tunnels REST calls
-        from third parties to the Core as these messages (some implement IServiceTunnelMessage). Siblings: MessageTapHomeApiLocationInfoRequest
-        (location name and info), MessageTapHomeApiGetDeviceValueRequest (DeviceId, OnlyThisType), MessageTapHomeApiGetMultipleDeviceValuesRequest
-        (Devices list, AllDevices flag), MessageTapHomeApiSetDeviceValueRequest (a MessageDeviceAction with Values:
-        Dictionary<ValueLogType,double>). All answer with MessageTapHomeApiResponse (TapHomeApiResponse payload).
-        These are day-to-day control and discovery; out of scope for the configuration CLI. Which devices are exposed
-        is configured per device in the app (TapHomeApiExposeDevicesPage) through ordinary device property updates.'
+      summary: TapHome public API call that lists exposed devices (tunnel only, sent by the TapHome cloud on behalf
+        of API clients, not by the app).
+      description: |-
+        Part of the TapHome Cloud API / IFTTT-style integration surface. The cloud tunnels REST calls from third parties to the Core as these messages (some implement IServiceTunnelMessage).
+        Siblings: MessageTapHomeApiLocationInfoRequest (location name and info), MessageTapHomeApiGetDeviceValueRequest (DeviceId, OnlyThisType), MessageTapHomeApiGetMultipleDeviceValuesRequest (Devices list, AllDevices flag), MessageTapHomeApiSetDeviceValueRequest (a MessageDeviceAction with Values: Dictionary<ValueLogType,double>).
+        All answer with MessageTapHomeApiResponse (TapHomeApiResponse payload). These are day-to-day control and discovery; out of scope for the configuration CLI.
+        Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it.
+        Which devices are exposed is configured per device in the app (TapHomeApiExposeDevicesPage) through ordinary device property updates.
       security:
       - coreSession: []
       requestBody:
@@ -5704,9 +5760,10 @@ paths:
       operationId: tapHomeApiGetDeviceValue
       tags:
       - taphome-api
-      summary: Read the values of one exposed device by external id.
-      description: 'Request fields: DeviceId (int), OnlyThisType (ValueLogType?). Response: MessageTapHomeApiResponse
-        with fields TapHomeApiResponse (TapHomeApiResponseBase).'
+      summary: Read the values of one exposed device by external id (tunnel only).
+      description: |-
+        Request fields: DeviceId (int), OnlyThisType (ValueLogType?). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+        Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it. Not tested with an exposed device id.
       security:
       - coreSession: []
       requestBody:
@@ -5740,9 +5797,10 @@ paths:
       operationId: tapHomeApiGetMultipleDeviceValues
       tags:
       - taphome-api
-      summary: Read values of several or all exposed devices (tunnel protocol version 2+).
-      description: 'Request fields: Devices (List<MessageTapHomeApiGetMultipleDeviceValuesRequestElement>), AllDevices
-        (bool). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).'
+      summary: Read values of several or all exposed devices (tunnel only, tunnel protocol version 2+).
+      description: |-
+        Request fields: Devices (List<MessageTapHomeApiGetMultipleDeviceValuesRequestElement>), AllDevices (bool). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+        Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it. The test sent AllDevices true.
       security:
       - coreSession: []
       requestBody:
@@ -5776,8 +5834,10 @@ paths:
       operationId: tapHomeApiLocationInfo
       tags:
       - taphome-api
-      summary: Return location id, name and TapHome API version.
-      description: 'Request fields: none. Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).'
+      summary: Return location id, name and TapHome API version (tunnel only).
+      description: |-
+        Request fields: none. Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+        Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it.
       security:
       - coreSession: []
       requestBody:
@@ -5817,11 +5877,11 @@ paths:
         Subclass of MessageDeviceAction with Values (dictionary ValueLogType to double). Defined in the model for the cloud TapHome API; the official app
         does not send it. Companion reads: MessageTapHomeApiGetDeviceValueRequest {DeviceId, OnlyThisType} and
         MessageTapHomeApiGetMultipleDeviceValuesRequest {Devices[], AllDevices}, which would return all values on demand. They are service tunnel
-        messages (IServiceTunnelMessage) and may be rejected on a direct client connection.
+        messages (IServiceTunnelMessage). On Core 2025.2.32396 the reads got no response within 60 s on a client session, so treat all of these as tunnel only. This write was not tried.
 
         This message is used for several purposes. Variants:
         - `setDeviceValuesByType`: Set several value types of a device in one message (TapHome API tunnel variant).
-        - `tapHomeApiSetDeviceValue`: Write device values through the TapHome API (control only, not configuration).
+        - `tapHomeApiSetDeviceValue`: Write device values through the TapHome API (tunnel only, control only, not configuration).
       security:
       - coreSession: []
       requestBody:
@@ -5859,11 +5919,13 @@ paths:
           Subclass of MessageDeviceAction with Values (dictionary ValueLogType to double). Defined in the model for the cloud TapHome API; the official app
           does not send it. Companion reads: MessageTapHomeApiGetDeviceValueRequest {DeviceId, OnlyThisType} and
           MessageTapHomeApiGetMultipleDeviceValuesRequest {Devices[], AllDevices}, which would return all values on demand. They are service tunnel
-          messages (IServiceTunnelMessage) and may be rejected on a direct client connection.
+          messages (IServiceTunnelMessage). On Core 2025.2.32396 the reads got no response within 60 s on a client session, so treat all of these as tunnel only. This write was not tried.
       - id: tapHomeApiSetDeviceValue
-        summary: Write device values through the TapHome API (control only, not configuration).
-        description: 'Request fields: Values (Dictionary<ValueLogType, double>). Response: MessageTapHomeApiResponse
-          with fields TapHomeApiResponse (TapHomeApiResponseBase).'
+        summary: Write device values through the TapHome API (tunnel only, control only, not configuration).
+        description: |-
+          Request fields: Values (Dictionary<ValueLogType, double>). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+          Tunnel message like the other TapHomeApi messages, whose reads got no answer on a client session (see tapHomeApiLocationInfo). This write was not tried.
+          The same request class is also listed as setDeviceValuesByType, which is the primary path entry.
   /Core/messages/MessageTapHomeBusBlindGetSoftwareCalibrationResultRequest:
     post:
       operationId: blindGetSoftwareCalibrationResult
@@ -7204,6 +7266,8 @@ paths:
         Response is GenericResponse; the app only checks that the task completed, not ErrorCode.
         Values are validated by the Core, not by the app (the app only filters the type picker to types valid for the interface).
         Persists immediately.
+        Confirmed on Core 2025.2.32396. {"Name": "<new name>"} renames a device (ErrorCode 1, one MessageDeviceUpdatedBroadcast, new name in the next sync), so Name is a normal property key.
+        {"ReadStateScriptPacketParser": "8"} on a Packet Parser variable also gave ErrorCode 1 and one MessageDeviceUpdatedBroadcast. The new script ran at once (the value changed within seconds, no restart).
 
         This message is used for several purposes. Variants:
         - `updateMultipleDevicesProperties`: Apply a property delta to one or many devices (the main device configuration write).
@@ -7244,7 +7308,16 @@ paths:
       - 'TapHome.Android: TapHome.Commons.ServiceSettingsManager.SaveChanges / CreateServiceScriptElement'
       - 'TapHome.Android: TapHome.Commons.CommonPages.ServiceScriptPage'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: ErrorCode 1 with one MessageDeviceUpdatedBroadcast for a rename (key Name, visible in the next sync)
+          and for a script change (ReadStateScriptPacketParser on a Packet Parser variable, the new script ran at
+          once, no restart); other keys, zone, category and type not tried (setDeviceType, assignDevicesToZone and
+          assignDevicesToCategory share this request class)
       x-variants:
       - id: updateMultipleDevicesProperties
         summary: Apply a property delta to one or many devices (the main device configuration write).
@@ -7263,6 +7336,8 @@ paths:
           Response is GenericResponse; the app only checks that the task completed, not ErrorCode.
           Values are validated by the Core, not by the app (the app only filters the type picker to types valid for the interface).
           Persists immediately.
+          Confirmed on Core 2025.2.32396. {"Name": "<new name>"} renames a device (ErrorCode 1, one MessageDeviceUpdatedBroadcast, new name in the next sync), so Name is a normal property key.
+          {"ReadStateScriptPacketParser": "8"} on a Packet Parser variable also gave ErrorCode 1 and one MessageDeviceUpdatedBroadcast. The new script ran at once (the value changed within seconds, no restart).
       - id: setDeviceType
         summary: Change the device type (semantic role such as Light, PowerOutlet, WindowSensor) of existing devices.
         description: |-
@@ -7537,6 +7612,10 @@ paths:
         Saved formulas and scripts are not validated by this call in the client. The Core parses them and reports problems afterwards through the trigger error operations.
         Permissions: the user needs UserSettingsCanEdit on the rule (existing) or CreateSmartRuleCanEdit for the type (new); the Core enforces this.
         Atomicity across the list is unknown; the app sends several rules in one message for bulk enable/disable and priority changes.
+        Confirmed on Core 2025.2.32396 for one create (Id 0, TriggerTypeId 12 formula, Version 13, IsEnabled false, ChangesetId 0, FormulaTriggerParameters with one input variable, one output variable and EvaluationFormula "Va", ValueLogType 62 on both): MessageGenericResponse ErrorCode 1 and one MessageTriggerModelsUpdatedBroadcast.
+        The Core filled TriggerInputs (instant connection, value type 62 to the device) and Priorities ({<device id>: 8}) itself, kept IsEnabled false and raised the changeset. A client does not need to send either field.
+        The Core did not allocate a new id. It reused the id of a soft-deleted rule (a tombstone slot). New rule ids are therefore not max + 1, and a client must find its rule by name and changeset in the broadcast or in the next sync.
+        Not tested: updating an existing rule, enabling a rule, several rules in one message, other rule types.
       security:
       - coreSession: []
       requestBody:
@@ -7566,7 +7645,16 @@ paths:
       - 'TapHome.Android: TapHome.Commons.CommonHelpers.MultiSelectHelper.HandleSmartRuleEnableDisableClicked'
       - 'TapHome.Android: CommonUI.CommonMainList.ViewModel.OutputSmartRuleElementsSectionViewModel.UpdateSmartRulesPriorities'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: 'exercised for one case only: create (Id 0) of a disabled formula rule (type 12, version 13) with
+          one input and one output variable; ErrorCode 1, one MessageTriggerModelsUpdatedBroadcast; the Core filled
+          TriggerInputs and Priorities and reused the id of a soft-deleted rule; updating or enabling an existing
+          rule and other rule types not tried'
   /Core/messages/MessageUpdateUserPermissionsForDashboardRequest:
     post:
       operationId: updateUserPermissionsForDashboard
@@ -9303,10 +9391,12 @@ webhooks:
     post:
       operationId: broadcastDeviceAggregatedValueChanged
       tags:
-      - devices
-      summary: 'Broadcast pushed by the Core: device aggregated value changed.'
-      description: The Core pushes this message to every logged-in client. The client does not reply with a response,
-        it only acknowledges receipt (MessageReceiveAcknowledgement).
+      - io-check
+      summary: Core pushes aggregated statistics values of devices (no subscription needed).
+      description: |-
+        Passive broadcast with a DeviceValueAggregation descriptor and the aggregated value (protocol 3 and up). The Official app code handles it next to MessageDeviceValueChangedBroadcast.
+        Confirmed on Core 2025.2.32396: about 14 of these arrived in 30 s on an idle client session that sent only acknowledgements and pings. No request asks for it and no operation enables it.
+        A client that only mirrors device values can ignore it. Acknowledge it like every other broadcast.
       security:
       - coreSession: []
       requestBody:
@@ -9324,15 +9414,20 @@ webhooks:
       x-proto-include-tag: 155
       x-min-protocol-version: 3
       x-triggered-by: []
-      x-evidence: []
+      x-evidence:
+      - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+      - 'Live test 2026-11-17 (Core 2025.2.32396): about one every 2 s, decoded without unknown fields'
       x-confidence: observed-in-code
       x-verified: true
+      x-operation-ids:
+      - deviceAggregatedValueChanged
       x-verification:
         verified: true
         date: '2026-11-17'
         core: 2025.2.32396
         protocol: 89
-        note: arrives without any subscription, about one every 2 s; decoded cleanly
+        note: arrives without any subscription, about one every 2 s; decoded cleanly; has its own subscribe-only
+          manifest entry deviceAggregatedValueChanged
   MessageDeviceErrorsSubscribedBroadcast:
     post:
       operationId: broadcastDeviceErrorsSubscribed
@@ -9377,6 +9472,7 @@ webhooks:
         removes devices that are no longer present, and replaces its CCU list. The app also clears its "devices update in progress"
         flag when this broadcast arrives, so the Core is expected to send it after a TapHome Bus configuration save, a module add,
         and deletions. No subscription request is needed; every logged-in client receives it.
+        Confirmed on Core 2025.2.32396: one broadcast after addDevice, one after deleteDevice and one after a Packet Parser config import.
 
         Pushed after: `addDevice`, `deleteDevice`, `deleteDevices`, `replaceModule`, `addInterface`, `deleteInterface`, `scanForNewDevices`, `tapHomeBusConfig`, `interfaceSpecificConfig`, `addPacketParserInterface`, `addModbusInterface`, `addPacketParserModule`, `addPacketParserDevice`, `importPacketParserTemplate`, `addTemplateDevicesToExistingPacketParserModule`, `addModbusModule`, `addModbusDevice`, `importModbusTemplate`, `addVirtualDevice`, `addVirtualVariable`.
       security:
@@ -9471,9 +9567,15 @@ webhooks:
       - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddVirtualVariableDialog.AddDevice'
       - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.ProtocolVersions.VariableMinProtocolVersion'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
       x-operation-ids:
       - deviceListUpdated
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: arrives once after addDevice, deleteDevice and a Packet Parser config import; no subscription needed
   MessageDeviceLogSubscribedBroadcast:
     post:
       operationId: broadcastDeviceLogSubscribed
@@ -9557,6 +9659,7 @@ webhooks:
       description: |-
         Payload: one complete GenericDevice (not a delta). Client merges it by ID. Sent after UpdateDeviceProperties, name, zone or
         type changes. A client that wants the new state should wait for this broadcast (or re-read after the response).
+        Confirmed on Core 2025.2.32396: one broadcast after a rename and one after a script property change.
 
         Pushed after: `updateMultipleDevicesProperties`, `updateDeviceName`, `setDeviceType`, `assignDevicesToZone`, `assignDevicesToCategory`, `updateDeviceSerialNumber`, `updateDeviceSerialNumbers`, `replaceModule`, `setManualOverrideSettings`, `toggleValueHistory`, `updateDeviceProperties`, `updateDevicePropertiesSingle`.
       security:
@@ -9610,9 +9713,15 @@ webhooks:
       - 'TapHome.Android: TapHome.Commons.CommonPages.ServiceScriptPage'
       - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDevicePropertiesForMultipleDevicesForOldCore'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
       x-operation-ids:
       - deviceUpdated
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: arrives once after a rename and once after a script property change; no subscription needed
   MessageDeviceValueChangedBroadcast:
     post:
       operationId: broadcastDeviceValueChanged
@@ -9623,7 +9732,8 @@ webhooks:
         Payload: DeviceId (int), ValueTypeId (ValueLogType int id, see 02-devices.md), Value (double). The client stores it as CurrentValues[type].
         Booleans are 0/1, states are numeric enums. Initial values come from GenericDevice.CurrentValues in the login or reconnect response.
         There is no "read current values" request in the app; a CLI must keep a local cache fed by the device list plus this broadcast.
-        MessageDeviceAggregatedValueChangedBroadcast (protocol 3 and up) carries aggregated statistics values with a DeviceValueAggregation descriptor.
+        Confirmed on Core 2025.2.32396: the broadcast arrives right after login without any subscription. ValueLog.ChangedOnTHUtc is in TapHome time, seconds since 2016-01-01 UTC.
+        MessageDeviceAggregatedValueChangedBroadcast is a separate passive broadcast, see deviceAggregatedValueChanged.
 
         Pushed after: `setManualOverrideState`, `setDeviceValue`, `setDeviceValuesByType`.
       security:
@@ -9648,6 +9758,7 @@ webhooks:
       - setManualOverrideState
       x-evidence:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+      - 'Live test 2026-11-17 (Core 2025.2.32396): arrives without a subscription'
       - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.ChangeDeviceOperationMode'
       - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.SendDeviceAction'
       - 'TapHome.Android: TapHome.Commons.DeviceActionsHelper.GetDeviceKeyAction / GetValueToBe'
@@ -9662,8 +9773,7 @@ webhooks:
         date: '2026-11-17'
         core: 2025.2.32396
         protocol: 89
-        note: MessageDeviceValueChangedBroadcast arrives without any subscription; also MessageDeviceAggregatedValueChangedBroadcast
-          (not listed in the manifest)
+        note: MessageDeviceValueChangedBroadcast arrives without any subscription
   MessageDevicesScanStatusBroadcast:
     post:
       operationId: broadcastDevicesScanStatus
@@ -10644,6 +10754,7 @@ webhooks:
         - MessageTriggerModelsDeletedBroadcast: TriggerIds (List<int>) and SmartRulesChangesetId. The client also removes the error status for those ids.
         Both carry the new global smart rule changeset; the client stores it and sends it back on the next reconnect.
         This is the only place a client learns the Core-assigned Id of a rule it just created, since the write response carries no payload.
+        Confirmed on Core 2025.2.32396: one MessageTriggerModelsUpdatedBroadcast after a create, one MessageTriggerModelsDeletedBroadcast after a delete, no subscription needed. New rule ids are not max + 1, see upsertSmartRules.
 
         Pushed after: `deleteSmartRules`.
       security:
@@ -10671,9 +10782,15 @@ webhooks:
       - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteSmartRules'
       - 'TapHome.Android: TapHome.Commons.BottomSheetHelper (uninstall item)'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
       x-operation-ids:
       - smartRuleChanges
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: arrives once after a smart rule delete; no subscription needed
   MessageTriggerModelsUpdatedBroadcast:
     post:
       operationId: broadcastTriggerModelsUpdated
@@ -10686,6 +10803,7 @@ webhooks:
         - MessageTriggerModelsDeletedBroadcast: TriggerIds (List<int>) and SmartRulesChangesetId. The client also removes the error status for those ids.
         Both carry the new global smart rule changeset; the client stores it and sends it back on the next reconnect.
         This is the only place a client learns the Core-assigned Id of a rule it just created, since the write response carries no payload.
+        Confirmed on Core 2025.2.32396: one MessageTriggerModelsUpdatedBroadcast after a create, one MessageTriggerModelsDeletedBroadcast after a delete, no subscription needed. New rule ids are not max + 1, see upsertSmartRules.
 
         Pushed after: `upsertSmartRules`.
       security:
@@ -10715,9 +10833,15 @@ webhooks:
       - 'TapHome.Android: TapHome.Commons.CommonHelpers.MultiSelectHelper.HandleSmartRuleEnableDisableClicked'
       - 'TapHome.Android: CommonUI.CommonMainList.ViewModel.OutputSmartRuleElementsSectionViewModel.UpdateSmartRulesPriorities'
       x-confidence: observed-in-code
-      x-verified: false
+      x-verified: true
       x-operation-ids:
       - smartRuleChanges
+      x-verification:
+        verified: true
+        date: '2026-11-17'
+        core: 2025.2.32396
+        protocol: 89
+        note: arrives once after a smart rule create; no subscription needed
   MessageUpdateProgressBroadcast:
     post:
       operationId: broadcastUpdateProgress

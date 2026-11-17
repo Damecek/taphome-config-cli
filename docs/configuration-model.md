@@ -2,18 +2,18 @@
 
 This page describes the objects a client reads and writes on a Core, and how the app changes them. Message sequences refer to operation ids from `openapi/operations/*.yaml`. Each operation is also in `openapi/taphome-core.yaml` as `POST /Core/messages/{RequestClass}`.
 
-Status values. "Confirmed" means seen on a live Core (see `docs/verification.md`). Everything else is derived from the app code and not yet tested. No write operation has been tried on a real Core, so every sequence below is a plan derived from the app's behaviour. Sequences that create objects should use names with the prefix `zz-agent-test` and delete the objects afterwards.
+Status values. "Confirmed" means seen on a live Core (see `docs/verification.md`). Everything else is derived from the app code and not yet tested. Live write tests on Core 2025.2.32396 confirmed these sequences: C (virtual variable), the single-device parts of D (Packet Parser module and device), and creating, deleting and renaming as listed in "Confirmed write payloads" below. Sequences A, B, E and F are still plans derived from the app's behaviour. Sequences that create objects should use names with the prefix `zz-agent-test` and delete the objects afterwards.
 
 ## Object overview
 
 | Concept | What it is | Identity | Status |
 |---|---|---|---|
 | Interface (CCU) | A communication channel. Examples are TapHome Bus, Modbus, Packet Parser, MQTT and virtual. | Integer `CcuId`, allocated by the Core | confirmed for the models `VirtualCCU`, `TapHomeBusCCU`, `PacketParserCCU` and `MqttCCU` |
-| Module | A device that represents hardware or a connection target. Examples are a TapHome Bus board, a Modbus slave and a Packet Parser host. | Integer device id, allocated by the Core | derived |
+| Module | A device that represents hardware or a connection target. Examples are a TapHome Bus board, a Modbus slave and a Packet Parser host. | Integer device id, allocated by the Core | confirmed for a Packet Parser HTTP module, derived for the rest |
 | Device | Anything with values and actions. Examples are a light, a button, a thermometer or a module. | Integer `ID`, allocated by the Core | confirmed for the model name families `TapHomeBus*`, `PacketParser*` and `Virtual*` |
 | Terminal | A physical input or output of a module that is configured as a device. It is a child device with `HardwareParentId` set to the module id. | Integer device id | derived |
 | Zone, category, dashboard | A grouping of devices. All three are `Dashboard` objects of a dashboard set. | Guid, allocated by the client | derived |
-| Smart rule | An automation. The code calls it a trigger. | Integer `Id`, allocated by the Core | derived |
+| Smart rule | An automation. The code calls it a trigger. | Integer `Id`, allocated by the Core, may reuse the id of a deleted rule | confirmed for create and delete |
 
 On the test Core, the reconnect response held 136 devices, 4 interfaces, 88 smart rules and 24 dashboards (confirmed).
 
@@ -21,7 +21,7 @@ On the test Core, the reconnect response held 136 devices, 4 interfaces, 88 smar
 
 ### Where a client gets the model
 
-The reconnect response carries all interfaces (`Ccus`), all devices with their current values, the smart rules, the dashboards, the permissions and the Core properties. There is no "list devices" request. Operation `getDeviceListOnLogin` documents this. Afterwards the Core pushes `MessageDeviceListUpdatedBroadcast` (full lists), `MessageDeviceUpdatedBroadcast` (one device) and `MessageDeviceValueChangedBroadcast` (one value). Confirmed for the single-message initial sync, derived for the broadcasts.
+The reconnect response carries all interfaces (`Ccus`), all devices with their current values, the smart rules, the dashboards, the permissions and the Core properties. There is no "list devices" request. Operation `getDeviceListOnLogin` documents this. Afterwards the Core pushes `MessageDeviceListUpdatedBroadcast` (full lists), `MessageDeviceUpdatedBroadcast` (one device) and `MessageDeviceValueChangedBroadcast` (one value). All of these are confirmed, as is the single-message initial sync. The device list is in the reconnect response, not in the login response (the login response was not checked for devices). `MessageDeviceAggregatedValueChangedBroadcast` also arrives passively and can be ignored.
 
 ### Interface
 
@@ -53,7 +53,7 @@ The device kind shown in the app (switch, push button, reed contact, analog outp
 
 ### Value types
 
-Values are doubles keyed by a `ValueLogType` id. Booleans are 0 and 1. The ids come from the declaration order of the enum in the app, so check a few against a live Core before you rely on them.
+Values are doubles keyed by a `ValueLogType` id. Booleans are 0 and 1. The ids come from the declaration order of the enum in the app. A live Core confirmed 48 SwitchState, 22 OperationMode, 5 RealTemperature, 6 TemperatureSetPoint, 3 Humidity, 42 AnalogOutputValue, 67 AnalogOutputDesiredValue, 7 DeviceStatus, 62 VariableState, 44 ReedContact and 69 for a clock. The others are derived.
 
 | Purpose | Value type (id) |
 |---|---|
@@ -66,6 +66,7 @@ Values are doubles keyed by a `ValueLogType` id. Booleans are 0 and 1. The ids c
 | Impulse counter | `TotalImpulseCount` (56) |
 | Blinds | `BlindsLevel` (46), `BlindsSlope` (10), `BlindsIsMoving` (66) |
 | Every device | `DeviceStatus` (7), `OperationMode` (22), `ManualTimeout` (23), `IsSafetySmartruleActive` (63) |
+| Variable | `VariableState` (62) |
 
 `DeviceStatus` below 256 is a plain enum (0 OK, 1 BatteryLow, 2 BatteryCritical, 3 Damaged, 4 CommunicationError, 5 UnknownError, 6 AuthorizationError, 7 ConfigurationError). From 256 it is packed, with the error count in bits 8 to 15, the warning count in bits 16 to 23 and the info count in bits 24 to 31. The full table is in the generated schemas.
 
@@ -81,10 +82,12 @@ Zones and categories are dashboards. A `Dashboard` belongs to a `DashboardSet`, 
 
 | Object | Who picks the id |
 |---|---|
-| Interface, device, module, smart rule | The Core. The client sends 0 or leaves it out, and reads the id from the response or the broadcast. |
+| Interface, device, module, smart rule | The Core. The client sends 0 or leaves it out, and reads the id from the response or the broadcast. A device create answers with the new device. A smart rule create answers with no id. |
 | Zone, category, dashboard | The client, as a new Guid. |
 | Long-running task | The client, as a Guid. |
-| Objects inside one Packet Parser or Modbus config | Placeholder ids, negative integers that exist only inside that message. The Core assigns real ids. |
+| Objects inside one Packet Parser or Modbus config | Placeholder ids, negative integers that exist only inside that message. The Core assigns real ids (confirmed for Packet Parser) and sets the child's `HardwareParentId` to the new module id. |
+
+Two live findings change what a client may assume about ids. First, the Core frees the id of a deleted device. After a delete, the highest device id went back to its old value, so a later create can get the same id again. A client must not keep a deleted id as a stable reference. Second, a new smart rule did not get "highest id plus 1". The Core reused the id of an existing soft-deleted rule. A client therefore finds its new rule by name and changeset in `MessageTriggerModelsUpdatedBroadcast` or in the next sync, never by guessing the id.
 
 ### Write granularity
 
@@ -165,12 +168,14 @@ One message creates all of them. `addVirtualDevice` and `addVirtualVariable` sen
 | `VirtualElectricityMeter`, `VirtualTemperatureSensor` and similar | meters and sensors |
 | `VirtualVariableGeneral` and time or sun variables | Variable |
 
-### Sequence C. Create a virtual variable
+### Sequence C. Create a virtual variable (confirmed)
 
-1. `addVirtualVariable` with `DeviceName` "zz-agent-test-var", `Interface` "Variable", `Model` "VirtualVariableGeneral" and `DeviceTypeId` 0.
-2. Read `AddedDevice.ID` from the response.
-3. `updateMultipleDevicesProperties` for name, unit or start value. Read `AddedDevice.DeviceProperties` for the key names.
+1. `addVirtualVariable` with `DeviceName` "zz-agent-test-var", `Icon` 0, `Interface` "Variable", `Model` "VirtualVariableGeneral" and `DeviceTypeId` 0. Send no `CcuId` and no `DeviceProperties`.
+2. Read `AddedDevice.ID` from the response. The Core attached the device to the virtual CCU and set the serial to `VIRT-<guid>`.
+3. `updateMultipleDevicesProperties` for name, unit or start value. Read `AddedDevice.DeviceProperties` for the key names. The defaults are `LogValues`, `IsIgnored`, `DeviceType`, `ZoneId`, `CategoryId`, `HardwareParentId`, `SerializedValueLogTypeConversions`, `IsReadOnly` and `IconId`.
 4. Clean up with `deleteDevice` (`MessageDeleteDeviceRequest` with `DeviceId` and `ForceDelete` false).
+
+The other virtual models in the table were not tried.
 
 ## Packet Parser and Modbus
 
@@ -208,8 +213,8 @@ Module models are `PacketParserModuleHttp`, `...Tcp`, `...Udp`, `...Ftp`, `...Mq
 | Key | Meaning |
 |---|---|
 | `IpAddress`, `Port`, `UseHttps` | Target. App defaults for the port are 80 (http), 21 (ftp), 4096 (udp), 1024 (tcp) and 1883 (mqtt). |
-| `StayConnected` | Keep the socket open. `True` or `False`. |
-| `InternalPollInterval` | Poll interval of the module. The unit is not known. |
+| `StayConnected` | Keep the socket open. `True` or `False`. A hand-built HTTP module did not keep this key after creation. |
+| `InternalPollInterval` | Poll interval of the module. The unit is not known. The values "3600000" (module) and "60000" (device) were accepted and kept as sent. |
 | `User`, `Password` | Credentials for http and ftp. |
 | `RootTopic` | MQTT root topic. |
 | `MessageFramingDefinition` | JSON with `Framing` (0 None, 1 Delimiter, 2 Satel, 3 KLF200) and a `Configuration` string. |
@@ -236,18 +241,19 @@ An input variable of a script is a `FormulaDeviceVariable` with `DeviceId`, `Val
 
 ### Debugging
 
-The only debug channel after saving is `getScriptLastRunValues` (`MessageGetScriptLastRunValuesRequest`). It takes a `LastRunId` with an object type (Device 0, Ccu 1, Smartrule 2), the object id and the `ScriptKey`, which is the property name. The response has the variable values of each capture phase, the result, the run time and the duration. Calls to `ADDERROR`, `ADDWARNING` and `ADDINFO` appear as device errors, readable with `getDeviceErrors`.
+The only debug channel after saving is `getScriptLastRunValues` (`MessageGetScriptLastRunValuesRequest`). It takes a `LastRunId` with an object type (Device 0, Ccu 1, Smartrule 2), the object id and the `ScriptKey`, which is the property name. The response has the variable values of each capture phase, the result, the run time and the duration. Confirmed for a Packet Parser device with `ScriptKey` "ReadStateScriptPacketParser": the response has `Result` and `RunTimestampUtc`. `Result` is a `DataType`. For a double, `SerializerValueTypeId` is 4 and `SerializerValueBytes` holds the IEEE-754 bits of the value as an int64. Before the script ran, the response held only the echoed `LastRunId`. The per-statement snapshots were not decoded. Calls to `ADDERROR`, `ADDWARNING` and `ADDINFO` appear as device errors, readable with `getDeviceErrors`.
 
-### Sequence D. Packet Parser module with one device
+### Sequence D. Packet Parser module with one device (confirmed for an HTTP module with one variable)
 
 1. Find the interface with model `PacketParserCCU` in the cached list. If it is missing, `addPacketParserInterface` with `Model` "PacketParserCCU" and read `CcuId` from the response.
 2. Build `ConfigJson` with one module (`Id` -1, model `PacketParserModuleHttp`, properties `IpAddress`, `Port`, `StayConnected`, `InternalPollInterval`) and one device (`Id` -2, model `PacketParserSwitch`, properties with the read and write script texts). Prefix the names with "zz-agent-test".
 3. `importPacketParserTemplate` with `CcuId` and `ConfigJson`.
 4. Read the module id and device ids from `AddedDevices`.
-5. After one poll interval, `getScriptLastRunValues` for the read script key.
-6. Change scripts with `updateMultipleDevicesProperties` and check again.
+5. The state script runs at once, so the value shows in the next sync or in a `deviceValueChanged` broadcast within seconds. `getScriptLastRunValues` for the script key shows the result.
+6. Change scripts with `updateMultipleDevicesProperties` and check again. The new script also runs at once, with no restart.
+7. Clean up. Delete the device first, then the module (`deleteDevice`). The module was deleted only after its child.
 
-The same flow works for Modbus with `addModbusInterface` and `importModbusTemplate`. Whether the Core remaps placeholder ids inside `DeviceVariables`, and whether an import is atomic, is not known.
+The same flow is expected to work for Modbus with `addModbusInterface` and `importModbusTemplate`, but Modbus was not tested. Whether the Core remaps placeholder ids inside `DeviceVariables`, and whether an import is atomic, is not known.
 
 ## Automations (smart rules)
 
@@ -261,12 +267,12 @@ A smart rule is one `TriggerModel`.
 | `TriggerTypeId` | The rule type. Ids from 10000 are safety rules. |
 | `Name` | Free text. The app makes it unique by appending a number. |
 | `Version` | Schema version of the type. Copy it from `TriggerVersions[type]` in the reconnect response. |
-| `IsEnabled`, `IsDeleted` | Enable flag. The Core sets the soft-delete marker. |
+| `IsEnabled`, `IsDeleted` | Enable flag. The Core sets the soft-delete marker. A created rule keeps `IsEnabled` as sent. A deleted rule stays in the list with `IsDeleted` true, no parameters, and its name, type and version. |
 | `ChangesetId` | Set by the Core and grows with every change. |
 | `LimitingCondition*` fields | Optional gate. It can be a formula, a time window, a switch or a multi-value switch. Safety rules cannot have it. |
 | `TriggerParameters` | The rule itself. The concrete subclass must match `TriggerTypeId` and `Version`. |
-| `TriggerInputs` | Derived by the Core from the parameters. |
-| `Priorities` | Map from output device id to priority. A higher value wins when rules compete. |
+| `TriggerInputs` | Derived by the Core from the parameters. Confirmed: the Core filled it for a new formula rule, so a client does not send it. |
+| `Priorities` | Map from output device id to priority. A higher value wins when rules compete. The Core fills it for a new rule (priority 8 for the one output in the test). |
 
 A rule is standalone. It refers to devices by id inside its parameters. There is no call that attaches a rule to a device. Actions inside rules are `ActionModel` entries, either a device action (`OutputDeviceId`, `OperationMode`, a list of value requests) or a notification. The app normalises action lists before saving. For hold-only lists it forces `OperationMode` to 0, removes command-style requests and sets `HoldAtTheEnd`. A client should do the same.
 
@@ -335,7 +341,7 @@ Ids 4, 8, 15, 16, 17, 23, 24, 31, 34 and 35 are legacy types with no editor. Som
 1. After the reconnect, keep `TriggerVersions[39]` as `v` and the device list. Confirm that the motion sensor `M` has a motion value and the light `L` has a switch state.
 2. Build a `TriggerModel` with `Id` 0, `TriggerTypeId` 39, `Name` "zz-agent-test motion light", `Version` `v`, `IsEnabled` true, `MotionSensorIds` `[M]`, a `MotionSensorTimeout` of 5 minutes and `ActiveActions` with one device action. The action has `OutputDeviceId` `L`, `OperationMode` 0 and one value request, `On` on `SwitchState`. Apply the hold-only normalisation.
 3. `upsertSmartRules` with the model. Expect `ErrorCode` 1.
-4. Wait for `MessageTriggerModelsUpdatedBroadcast`. The rule appears with a non-zero `Id`, filled `TriggerInputs` and a `ChangesetId`. Match it by name and type.
+4. Wait for `MessageTriggerModelsUpdatedBroadcast`. The rule appears with a non-zero `Id`, filled `TriggerInputs` and a `ChangesetId`. Match it by name and type. The `Id` can be one that belonged to a deleted rule.
 5. `getSmartRuleErrors` for the new id. An empty list means the Core accepted all references.
 6. Disable with `upsertSmartRules` and the same model with `IsEnabled` false. Delete with `deleteSmartRules`.
 
@@ -350,3 +356,72 @@ Ids 4, 8, 15, 16, 17, 23, 24, 31, 34 and 35 are legacy types with no editor. Som
 ### Schedules
 
 Time-based rules keep their schedule inside the rule. `WeekScheduleTrigger` has a `Minutes` dictionary and an `InputMode`. `DailyScheduleTrigger` starts and ends by clock time or sun event with an adjustment. Sun times need the Core's clock and location (`updateCoreTime` sets the clock). Week plans and date ranges (`addWeekPlan`, `addDateRange` and similar) belong to door access cards and are not needed for smart rules.
+
+## Confirmed write payloads
+
+These payloads were sent to Core 2025.2.32396 (protocol 89) and accepted. They are shown in the JSON form of `scripts/probe`, where the `$type` key is left out and `<id>` stands for an id from an earlier response. Each answer is `MessageGenericResponse` with `ErrorCode` 1 unless a typed response is named. The test objects were named `TEST-zz-agent-test-*` and were removed afterwards.
+
+Add a virtual variable (`MessageAddDeviceRequest`). The answer is `MessageAddDeviceResponse` with `AddedDevice` and the interface list. One `MessageDeviceListUpdatedBroadcast` follows.
+
+```
+{"DeviceName": "<name>", "Icon": 0, "Interface": "Variable", "Model": "VirtualVariableGeneral", "DeviceTypeId": 0}
+```
+
+Rename a device (`MessageUpdateMultipleDevicesPropertiesRequest`). One `MessageDeviceUpdatedBroadcast` follows, and the new name is in the next sync.
+
+```
+{"DeviceIds": [<id>], "DeviceProperties": {"Name": "<new name>"}}
+```
+
+Update a script (same message). The new script ran at once.
+
+```
+{"DeviceIds": [<id>], "DeviceProperties": {"ReadStateScriptPacketParser": "8"}}
+```
+
+Create a smart rule (`MessageUpdateTriggerModelsRequest`). The request leaves out `Priorities` and `TriggerInputs`. The Core fills both and keeps `IsEnabled`. Variables are `FormulaDeviceVariable` entries, here on value type 62 (VariableState) of one variable device. One `MessageTriggerModelsUpdatedBroadcast` follows. The rule has the `Id` of an old deleted rule, so find it by name.
+
+```
+{"TriggerModels": [{
+  "Id": 0, "TriggerTypeId": 12, "Name": "<name>", "Version": 13, "IsEnabled": false, "ChangesetId": 0,
+  "TriggerParameters": {
+    "InputVariables":  [{"DeviceId": <id>, "ValueLogType": 62, "Abbreviation": "Va"}],
+    "OutputVariables": [{"DeviceId": <id>, "ValueLogType": 62}],
+    "EvaluationFormula": "Va"}}]}
+```
+
+Delete a smart rule (`MessageDeleteTriggerModelsRequest`). The rule stays as a tombstone. One `MessageTriggerModelsDeletedBroadcast` follows.
+
+```
+{"TriggerIds": [<id>]}
+```
+
+Create a Packet Parser module with one device (`MessageHttpApiConfigRequest`, `CcuId` is the id of the interface with model `PacketParserCCU`). The answer is `MessageHttpApiConfigResponse` with `CcuId` and `AddedDevices` (module first, then the device). One `MessageDeviceListUpdatedBroadcast` follows. `ConfigJson` is one JSON string, shown here pretty-printed. The Core derives the child's `HardwareParentId` from the nesting.
+
+```
+{"CcuId": <id>, "ConfigJson": {
+  "ProtocolVersion": 66,
+  "Modules": [{
+    "Name": "<module name>", "Model": "PacketParserModuleHttp", "Id": -1, "HardwareParentId": 0,
+    "CategoryId": "00000000-0000-0000-0000-000000000000", "ZoneId": "00000000-0000-0000-0000-000000000000",
+    "DeviceProperties": {"IpAddress": "<host>", "Port": "<port>", "StayConnected": "False",
+                         "InternalPollInterval": "3600000", "UseHttps": "False"},
+    "Devices": [{
+      "Name": "<device name>", "Model": "PacketParserVariable", "Id": -2, "HardwareParentId": 0,
+      "CategoryId": "00000000-0000-0000-0000-000000000000", "ZoneId": "00000000-0000-0000-0000-000000000000",
+      "DeviceProperties": {"ReadStateScriptPacketParser": "7", "InternalPollInterval": "60000", "IsReadOnly": "True"}}]}]}}
+```
+
+Delete a device (`MessageDeleteDeviceRequest`). Delete a child before its module. One `MessageDeviceListUpdatedBroadcast` follows.
+
+```
+{"DeviceId": <id>, "ForceDelete": false}
+```
+
+Read a script result (`MessageGetScriptLastRunValuesRequest`).
+
+```
+{"LastRunId": {"ObjectIdType": 0, "ObjectId": <device id>, "ScriptKey": "ReadStateScriptPacketParser"}}
+```
+
+What the Core adds on a create. A device gets a serial (`VIRT-<guid>`, `PacketParser--<8 hex>` for the module, `PacketParser-Variable-<8 hex>` for the device) and all default properties. A Packet Parser module got 23 keys, such as `ReadScriptPacketParser`, `WriteScriptPacketParser`, `CustomVariables`, `DeviceVariables`, `ServiceAttributesScriptsPacketParser`, `ServiceActionsScriptsPacketParser`, `TemplateIdentity`, `User`, `Password`, `IgnoreSSLErrors` and `HttpAuthentification` ("None"). It has `Interface` "IHardwareParentModule" and `DeviceType` 7001. The device's `ReadScriptPacketParser` was filled with a commented example script. A client should read `AddedDevices[].DeviceProperties` for the real key names instead of hard-coding them.

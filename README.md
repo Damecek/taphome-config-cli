@@ -8,7 +8,7 @@ The goal is configuration and administration (devices, virtual devices, Packet P
 
 Step 1 is drafted. The result of the reverse engineering is that TapHome has no REST API for configuration. The Android app talks to the TapHome Core over a WebSocket on the LAN (`ws://<core>/Core`, port 80) and exchanges binary protobuf messages. The Core stores the whole configuration. The cloud only holds accounts and a location list, and relays the same WebSocket when the phone is away from home.
 
-Login and the initial configuration sync were confirmed against a real Core (software 2025.2.32396, protocol version 89). Write operations are derived from the app code and not yet tested.
+Login, the initial configuration sync, 48 read operations and the core write paths were confirmed against a real Core (software 2025.2.32396, protocol version 89). The confirmed writes are: create, rename and delete a virtual device, create a Packet Parser module with a device from a configuration JSON and change its script, create and delete a smart rule. The remaining operations are derived from the app code. [`docs/verification.md`](docs/verification.md) lists what is confirmed and what is not.
 
 - [`openapi/taphome-core.yaml`](openapi/taphome-core.yaml): the OpenAPI 3.1 document. WebSocket messages appear as virtual `POST /Core/messages/{Class}` paths, broadcasts as `webhooks`.
 - [`docs/architecture.md`](docs/architecture.md): components, LAN and cloud paths, discovery, endpoints, Official and Next lines.

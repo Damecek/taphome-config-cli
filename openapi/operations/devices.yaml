@@ -15,13 +15,13 @@
 - id: getDeviceListOnLogin
   tag: devices
   kind: read
-  request: MessageLoginRequest
-  response: MessageLoginResponse
+  request: MessageReconnectRequest
+  response: MessageReconnectResponse
   broadcasts: []
-  summary: The full interface and device model reaches the client inside the login response.
+  summary: The full interface and device model reaches the client inside the reconnect response.
   description: |-
-    There is no "get all devices" request. MessageLoginResponse carries Ccus (GenericCcu[]), Devices (GenericDevice[]) and DeviceTimers.
-    On a reconnect the same data arrives in MessageReconnectResponse (Ccus, Devices, plus changeset ids and smart rules).
+    There is no "get all devices" request. Confirmed on Core 2025.2.32396: the complete device and interface list arrives in MessageReconnectResponse (Ccus, Devices, DeviceTimers, plus changeset ids and smart rules), after the client reconnects with the DbHash from the first (ReconnectResultId 4) response.
+    The app code also lists Ccus, Devices and DeviceTimers on MessageLoginResponse. The test did not look for devices in the login response, so treat the reconnect response as the only source.
     Each GenericDevice already holds identity (ID, Name, Icon, Model, Interface, SerialNumber, HardwareParentId, ZoneId, CategoryId,
     DeviceType int id), the property dictionary (DeviceProperties, string to string), CurrentValues (ValueLog per value type id),
     SupportedValueLogTypes and SupportedActionTypes. Transport and login details are covered by the transport notes.
@@ -29,6 +29,7 @@
   evidence:
   - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnect'
   - 'TapHome.Core.Lib.Model: MessageLoginResponse, MessageReconnectResponse'
+  - 'Live test 2026-11-17 (Core 2025.2.32396): the device list is in the reconnect response'
   confidence: observed-in-code
 - id: deviceListUpdated
   tag: devices
@@ -43,6 +44,7 @@
     removes devices that are no longer present, and replaces its CCU list. The app also clears its "devices update in progress"
     flag when this broadcast arrives, so the Core is expected to send it after a TapHome Bus configuration save, a module add,
     and deletions. No subscription request is needed; every logged-in client receives it.
+    Confirmed on Core 2025.2.32396: one broadcast after addDevice, one after deleteDevice and one after a Packet Parser config import.
   minProtocolVersion: 0
   evidence:
   - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
@@ -59,6 +61,7 @@
   description: |-
     Payload: one complete GenericDevice (not a delta). Client merges it by ID. Sent after UpdateDeviceProperties, name, zone or
     type changes. A client that wants the new state should wait for this broadcast (or re-read after the response).
+    Confirmed on Core 2025.2.32396: one broadcast after a rename and one after a script property change.
   minProtocolVersion: 0
   evidence:
   - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
@@ -94,6 +97,9 @@
     (type specific defaults such as OnStateName/OffStateName/OnStateIconId/OffStateIconId/SafeValues, produced by DeviceTypeHelper),
     DeviceTypeId (int DeviceType, 0 for none), CcuId (the app always sends null, so the Core attaches the device to the virtual CCU).
     SerialNumber is never sent. The Core allocates the int device id. Response: AddedDevice (full GenericDevice) and Ccus (full CCU list).
+    Confirmed on Core 2025.2.32396 for a virtual variable: DeviceName, Icon 0, Interface "Variable", Model "VirtualVariableGeneral", DeviceTypeId 0, no CcuId and no DeviceProperties is enough.
+    The Core attached the device to the virtual CCU (CcuId 1 there), generated the serial number (VIRT-<guid>) and filled the default DeviceProperties (LogValues, IsIgnored, DeviceType, ZoneId, CategoryId, HardwareParentId, SerializedValueLogTypeConversions, IsReadOnly, IconId).
+    One MessageDeviceListUpdatedBroadcast followed. The write persisted at once: a new socket saw the device seconds later. Other models and interfaces were not tried.
     The app then opens the settings page for the new device, where the user edits properties with updateMultipleDevicesProperties.
     Physical devices (TapHome Bus, Modbus, Packet Parser, ZigBee, KNX) are not created with this message; see tapHomeBusConfig and
     the interface specific config messages. Protocol gates: device type ids need protocol 26 (4 for ids that existed before), tunable
@@ -127,6 +133,8 @@
     Response is GenericResponse; the app only checks that the task completed, not ErrorCode.
     Values are validated by the Core, not by the app (the app only filters the type picker to types valid for the interface).
     Persists immediately.
+    Confirmed on Core 2025.2.32396. {"Name": "<new name>"} renames a device (ErrorCode 1, one MessageDeviceUpdatedBroadcast, new name in the next sync), so Name is a normal property key.
+    {"ReadStateScriptPacketParser": "8"} on a Packet Parser variable also gave ErrorCode 1 and one MessageDeviceUpdatedBroadcast. The new script ran at once (the value changed within seconds, no restart).
   minProtocolVersion: 16
   evidence:
   - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDeviceProperties'
@@ -213,6 +221,8 @@
     (the app then removes the device from its cache), 15 means failure, 3 means refused.
     The module replace flow deletes the module and its terminal devices with separate calls, so assume children are not removed implicitly.
     Persists immediately.
+    Confirmed on Core 2025.2.32396 with ForceDelete false: ErrorCode 1 and one MessageDeviceListUpdatedBroadcast for a virtual variable, a Packet Parser device, and (after its child was deleted) a Packet Parser module.
+    The id of a deleted device is freed: the highest device id went back to its old value, so a later create can reuse an id. ForceDelete true was not tried.
   minProtocolVersion: 1
   evidence:
   - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.DeleteDevice'
@@ -753,10 +763,29 @@
     Payload: DeviceId (int), ValueTypeId (ValueLogType int id, see 02-devices.md), Value (double). The client stores it as CurrentValues[type].
     Booleans are 0/1, states are numeric enums. Initial values come from GenericDevice.CurrentValues in the login or reconnect response.
     There is no "read current values" request in the app; a CLI must keep a local cache fed by the device list plus this broadcast.
-    MessageDeviceAggregatedValueChangedBroadcast (protocol 3 and up) carries aggregated statistics values with a DeviceValueAggregation descriptor.
+    Confirmed on Core 2025.2.32396: the broadcast arrives right after login without any subscription. ValueLog.ChangedOnTHUtc is in TapHome time, seconds since 2016-01-01 UTC.
+    MessageDeviceAggregatedValueChangedBroadcast is a separate passive broadcast, see deviceAggregatedValueChanged.
   minProtocolVersion: 0
   evidence:
   - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+  - 'Live test 2026-11-17 (Core 2025.2.32396): arrives without a subscription'
+  confidence: observed-in-code
+- id: deviceAggregatedValueChanged
+  tag: io-check
+  kind: subscribe
+  request: null
+  response: null
+  broadcasts:
+  - MessageDeviceAggregatedValueChangedBroadcast
+  summary: Core pushes aggregated statistics values of devices (no subscription needed).
+  description: |-
+    Passive broadcast with a DeviceValueAggregation descriptor and the aggregated value (protocol 3 and up). The Official app code handles it next to MessageDeviceValueChangedBroadcast.
+    Confirmed on Core 2025.2.32396: about 14 of these arrived in 30 s on an idle client session that sent only acknowledgements and pings. No request asks for it and no operation enables it.
+    A client that only mirrors device values can ignore it. Acknowledge it like every other broadcast.
+  minProtocolVersion: 3
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleBroadcast'
+  - 'Live test 2026-11-17 (Core 2025.2.32396): about one every 2 s, decoded without unknown fields'
   confidence: observed-in-code
 - id: setDeviceValue
   tag: io-check
@@ -799,7 +828,7 @@
     Subclass of MessageDeviceAction with Values (dictionary ValueLogType to double). Defined in the model for the cloud TapHome API; the official app
     does not send it. Companion reads: MessageTapHomeApiGetDeviceValueRequest {DeviceId, OnlyThisType} and
     MessageTapHomeApiGetMultipleDeviceValuesRequest {Devices[], AllDevices}, which would return all values on demand. They are service tunnel
-    messages (IServiceTunnelMessage) and may be rejected on a direct client connection.
+    messages (IServiceTunnelMessage). On Core 2025.2.32396 the reads got no response within 60 s on a client session, so treat all of these as tunnel only. This write was not tried.
   minProtocolVersion: 0
   evidence:
   - 'TapHome.Core.Lib.Model: MessageTapHomeApiSetDeviceValueRequest, MessageTapHomeApiGetMultipleDeviceValuesRequest'
@@ -813,7 +842,7 @@
   - MessageDeviceLogSubscribedBroadcast
   summary: Read the recent value-change log of a device and optionally subscribe to new entries.
   description: |-
-    Fields: DeviceId, ShouldSubscribe. Response: ValueChangedLogEntries[] each with TapHomeTime (seconds based custom epoch), Values (list of value type id to value),
+    Fields: DeviceId, ShouldSubscribe. Response: ValueChangedLogEntries[] each with TapHomeTime (TapHome time, seconds since 2016-01-01 UTC, confirmed on Core 2025.2.32396), Values (list of value type id to value),
     ChangeOriginId (ChangeOrigin enum: 1 manual, 2 app, 3 smart rule, 4 startup, ...) and HandlingStatus (which smart rule reacted).
     Subscription is kept alive by resending MessageDeviceLogSubscribeBroadcastRequest {DeviceId} every 5 seconds; entries then arrive as
     MessageDeviceLogSubscribedBroadcast {DeviceId, AddedValueChangedLogEntries[]}. The subscription lapses when the client stops renewing.
@@ -836,6 +865,7 @@
     UI, DI, UO, DO, BL, NTC, DMX, AO, ...). Renewal of the subscription uses MessageDeviceErrorsSubscribeBroadcastRequest {DeviceId, OriginId}
     every 5 seconds; updates arrive as MessageDeviceErrorsSubscribedBroadcast. The aggregate state is also in the device value DeviceStatus
     (value type 7): below 256 a simple enum, otherwise bytes 1..3 count errors, warnings and infos.
+    Confirmed on Core 2025.2.32396 with ShouldSubscribe false: a healthy device (OriginId 0) and a Packet Parser module (OriginId 1) both answered with empty lists, before and after a script ran. A response with errors was not seen.
   minProtocolVersion: 39
   evidence:
   - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDeviceErrors / SendDeviceErrorsSubscribeBroadcastRequest'

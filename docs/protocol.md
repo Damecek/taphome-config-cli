@@ -81,7 +81,15 @@ A `TimeSpan` is a nested message. Field 1 is the value as a zigzag varint. Field
 | 0 | empty |
 | `TimeSpan.MaxValue` | `08 02 10 0f` (value 1 zigzag is 2, scale 15) |
 
-A `DateTime` is the same message, holding the time span since 1970-01-01T00:00:00. The kind is ignored, with no time zone conversion, and the app reads it back as unspecified. Fields named `...Utc` hold UTC. Many timestamps are plain `long` fields named `...TUtc`, and their unit is not determined.
+A `DateTime` is the same message, holding the time span since 1970-01-01T00:00:00. The kind is ignored, with no time zone conversion, and the app reads it back as unspecified. Fields named `...Utc` hold UTC. Many timestamps are plain integer fields, and a live Core confirmed three units.
+
+| Field | Unit |
+|---|---|
+| `long` fields named `...TUtc`, for example `FirstLoginOnTUtc`, `PerformedOnTUtc`, `ValidToTUtc`, `RunTimestampUtc` | .NET ticks, 100 ns since 0001-01-01 UTC. `DateTime.MaxValue.Ticks` marks "no end". |
+| `ValueLog.ChangedOnTHUtc`, `TapHomeTime` in log and error entries | TapHome time, seconds since 2016-01-01 UTC |
+| Core property `Current Time` (uint32) | seconds since 2000-01-01, and it equals the Core's local wall-clock time, not UTC |
+
+A `DateTime` field such as `LastHistoryCloudFlushOnTUtc` uses the bcl encoding above.
 
 The Next line always writes both fields. Readers accept both forms.
 
@@ -93,6 +101,7 @@ The Next line always writes both fields. Readers accept both forms.
 - Requests that expect no answer (subscriptions, task cancellation) still carry a `RequestsId` and are still acknowledged.
 - The Core numbers its own messages with a running `RequestsId`. Confirmed: acknowledgements from the Core carry a non-zero `RequestsId`. A client must ignore that value on acknowledgements and broadcasts.
 - Long-running tasks answer with `MessageLongRunningTaskProgress` (include tag 426) under the request's `RequestsId`. Fields are `TaskId` (Guid), `Progress` (int) and `Parameters`.
+- The `MessageTapHomeApi...` read messages (location info, discovery, get device value, get multiple device values) are tunnel messages. A client session got no answer within 60 s and stayed usable, so do not wait for them on a LAN socket (confirmed).
 - Before the reconnect handshake succeeds, a socket may receive only the reconnect response, acknowledgements, generic responses, containers and broadcast classes. The app closes the socket on anything else.
 
 ## Acknowledgements (protocol 23 or higher)
@@ -120,17 +129,18 @@ The Next line adds `MessageCompressed` (include tag 99, protocol 90 or higher) w
 
 ## Broadcasts and subscriptions
 
-A broadcast has `MessageType` 3. The Core sends it after a change, to every connected client, including the one that caused the change (derived). A client updates its cache from broadcasts. The OpenAPI document lists each broadcast as a webhook.
+A broadcast has `MessageType` 3. The Core sends it after a change, to every connected client, including the one that caused the change (confirmed for the writer). A client updates its cache from broadcasts. The OpenAPI document lists each broadcast as a webhook.
 
 | Broadcast | Meaning |
 |---|---|
-| `MessageDeviceListUpdatedBroadcast` | Full replacement of devices and interfaces. |
-| `MessageDeviceUpdatedBroadcast` | One full device. |
+| `MessageDeviceListUpdatedBroadcast` | Full replacement of devices and interfaces. Sent once after a device add, a device delete and a Packet Parser import (confirmed). |
+| `MessageDeviceUpdatedBroadcast` | One full device. Sent once after a property update (confirmed). |
 | `MessageDeviceValueChangedBroadcast` (include tag 107) | One value changed. |
-| `MessageTriggerModelsUpdatedBroadcast`, `MessageTriggerModelsDeletedBroadcast` | Smart rule changes. |
+| `MessageDeviceAggregatedValueChangedBroadcast` | Aggregated statistics values. Passive, confirmed. |
+| `MessageTriggerModelsUpdatedBroadcast`, `MessageTriggerModelsDeletedBroadcast` | Smart rule changes. Sent once after a create and once after a delete (confirmed). |
 | Permission and dashboard broadcasts | Changes with a changeset id. |
 
-Device values, device lists and rule changes arrive without a subscription (derived, not yet observed). High-rate data needs an explicit subscribe request, and the app renews the log subscription every 5 s.
+Device values, device lists, device updates and smart rule changes arrive without a subscription (confirmed). `MessageDeviceValueChangedBroadcast` and `MessageDeviceAggregatedValueChangedBroadcast` (about one every 2 s) arrive on an idle session. The aggregated one has no request that enables it, and a client can ignore it after acknowledging it. A `getDeviceLog` request with `ShouldSubscribe` true produced no extra log broadcast class in a 15 s test, only the same value-change broadcasts. The app renews the log subscription every 5 s. The device and rule broadcasts below were observed once per write on the socket that sent the write.
 
 | Subscribe request | Include tag |
 |---|---|
@@ -150,7 +160,7 @@ Any request can be answered by `MessageGenericResponse` (include tag 102). Write
 | 3 | `ErrorCode` | int32 |
 | 4 | `ProtoParameters` | list of `ProtoParameterBase` |
 
-Success is `ErrorCode` 1. Device actions count `ResponseFlags` Handled as success. Some app flows treat any answer as success, and a client should always check both fields.
+Success is `ErrorCode` 1, with `ErrorMessage` "Ok" (confirmed for every write test). Device actions count `ResponseFlags` Handled as success. Some app flows treat any answer as success, and a client should always check both fields.
 
 `CommonErrorCodes` (derived).
 
@@ -175,11 +185,20 @@ Observed in the code. Code 2 is the permission error. Code 21 on a tunnel closes
 
 ## How changes are committed
 
-- There is no commit, save, apply, transaction, edit mode or lock message. A write is one request, answered by a response, followed by a broadcast that updates every client's cache (derived).
-- The change takes effect when the Core answers. Whether storage is durable at that moment is not visible to the client, but nothing in the app suggests a later step.
-- Changeset ids on permissions, dashboards and smart rules are version counters for cache synchronisation, not transactions.
+- There is no commit, save, apply, transaction, edit mode or lock message (confirmed). A write is one request, answered by a response, followed by one broadcast that updates every client's cache.
+- A write takes effect when the Core answers and is durable at once. A fresh client that connected from a new socket seconds later saw every write, with no restart and no second step. Persistence across a Core restart was not tested.
+- A changed script or a new device ran immediately. A Packet Parser state script produced a value within seconds, so the Core applies configuration live.
+- Changeset ids on permissions, dashboards and smart rules are version counters for cache synchronisation, not transactions. A smart rule write raises the rule's changeset and the global smart rule changeset.
 - A restart is needed only for module replacement on Cores below protocol 13. `MessageRestartCoreRequest` (include tag 210) exists for the settings page.
-- A multi-object message such as a list of smart rules or a bus configuration is one request. Whether the Core applies it atomically is not known.
+- A multi-object message such as a list of smart rules or a bus configuration is one request. Whether the Core applies it atomically is not known. A config message with two objects (a Packet Parser module and its device) created both.
+
+### Id allocation (confirmed)
+
+- The Core picks ids for devices, modules and smart rules. The client sends 0, leaves the id out or uses a negative placeholder inside a config message.
+- Negative placeholder ids in a Packet Parser `ConfigJson` are only labels. The Core replaced them and set the child's `HardwareParentId` to the new module id.
+- A device create returns the new device with its id. A smart rule create returns no id, so a client matches the rule by name and changeset in the broadcast or the next sync.
+- Ids are reused. A deleted device frees its id. A new smart rule took the id of a soft-deleted rule. A client must not treat "highest id plus 1" as the next id, and must not keep a deleted id.
+- A deleted smart rule is not removed. It stays in the list as a tombstone with `IsDeleted` true and its parameters removed.
 
 ## Timeouts
 
