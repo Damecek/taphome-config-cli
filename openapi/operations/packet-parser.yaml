@@ -1,0 +1,411 @@
+# Operations for the Packet Parser, Modbus, templates, scripts and virtual devices.
+# Format of every entry (all files in this directory share it):
+#   id                  unique operationId
+#   tag                 one of the spec tags
+#   kind                read | write | subscribe | action
+#   request / response  protobuf class names from work/catalog/official.json (null when none)
+#   broadcasts          broadcast classes the Core pushes as a consequence
+#   summary, description, minProtocolVersion, evidence, confidence
+#   endpoint            optional, WebSocket endpoint (default /Core)
+#   security            optional, "none" for operations that need no session
+#   bareResponse        optional, the endpoint sends the response class without a MessageBase wrapper
+# Source: static reading of the decompiled TapHome Official Android app 2025.2.32375. Nothing here is verified against a live Core
+# unless openapi/verification.yaml says so. "GenericResponse OK" means MessageGenericResponse with ErrorCode == 1.
+
+- id: updateDeviceProperties
+  tag: scripts
+  kind: write
+  request: MessageUpdateMultipleDevicesPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Write device or module properties, including all scripts, variables, service attributes and actions,
+    in one call.
+  description: |-
+    Request: DeviceIds (int[]), DeviceProperties (string to string). The app sends only the properties the user changed
+    (GetChangedDeviceProperties) and, for several devices, the same map to all of them. Script text is stored as a plain
+    string property; there is no compiled form on the wire. Property keys per device kind are listed in the notes md.
+    Scripts and their companion data are separate keys: the script (for example WriteScriptPacketParser), the input variables
+    (JSON of List<FormulaDeviceVariable> in "Variables" or "DeviceVariables", the key present on the device decides), custom
+    variables ("CustomVariables", "CustomDeviceVariables", JSON of List<FormulaVariable>), "ShouldDoPeriodicWrite" ("True"/
+    "False") and "InternalPollInterval" (integer, unit not visible; the app shows a number picker). The app saves several
+    related keys together when one script dialog changes them, so send script and variables in one request. Core older than
+    v16 uses MessageUpdateDevicePropertiesRequest (DeviceId, DeviceName, DeviceProperties) per device; irrelevant for v66+.
+    The device name is also a property key ("Name"), as the add-virtual-device flow shows. Persistence is immediate (the Core
+    stores the device); the Core is expected to answer with MessageGenericResponse and ErrorCode 1 (the helper only checks
+    that the task completed without a failure flag).
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDeviceProperties'
+  - 'TapHome.Android: TapHome.Commons.ServiceSettingsManager.SaveChanges / CreateServiceScriptElement'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.ServiceScriptPage'
+  confidence: observed-in-code
+- id: addPacketParserInterface
+  tag: packet-parser
+  kind: write
+  request: MessageAddCcuRequest
+  response: MessageAddCcuResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  - MessageCcuUpdatedBroadcast
+  summary: Create the Packet Parser interface (CCU) that holds Packet Parser modules.
+  description: |-
+    Model must be "PacketParserCCU". The app sends Properties = {Model:"PacketParserCCU", SerialNumber:"", PollInterval:"60",
+    IP:"invalid", LogValues:"false", IsIgnored:"false", Port:"", Password:"", Name:<translated interface name>}.
+    The Core allocates CcuId and returns the new GenericCcu in MessageAddCcuResponse.Ccu. The app only offers this CCU type
+    when the Core protocol version is >= 66 (CcuType.PacketParser). MQTT has its own CCU model "MqttCCU" (v69) with a separate
+    UI page; its properties are not visible in the client code. Which broadcast follows is not visible in the client; the app
+    refreshes its CCU list from MessageDeviceListUpdatedBroadcast.Ccus, so that is the likely one.
+  minProtocolVersion: 66
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddCcuDialog.GetProperties / AddCcu'
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.CcuCommunicationHelper.AddCcu'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddCcu'
+  confidence: observed-in-code
+- id: addModbusInterface
+  tag: modbus
+  kind: write
+  request: MessageAddCcuRequest
+  response: MessageAddCcuResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  - MessageCcuUpdatedBroadcast
+  summary: Create a Modbus RTU or Modbus TCP interface (CCU).
+  description: |-
+    Model is "ModbusRtuCCU" or "ModbusTcpCCU". Unlike PacketParserCCU the app sends only {Name:<translated name>} as
+    Properties (the Ccu constructor without a property map), so the Core fills in defaults. Serial parameters for RTU
+    (Baudrate, Parity, DataBits, StopBits, port) are set afterwards with updateCcuProperties; templates carry them as
+    SuggestedCCUParameters (see CCUParameterType: Baudrate, Parity, DataBits, StopBits).
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddCcuDialog.AddCcu'
+  - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Templates.CCUParameterType'
+  confidence: observed-in-code
+- id: updateCcuProperties
+  tag: packet-parser
+  kind: write
+  request: MessageUpdateCcuPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageCcuUpdatedBroadcast
+  summary: Change properties of an interface (CCU), for example the Modbus serial settings suggested by a template.
+  description: |-
+    Fields: CcuId, Properties (string map; only the keys you send are changed, inferred from the template flow that sends
+    only SuggestedCCUParameters). ErrorCode 1 is success. The app uses it after a Modbus template import when the template
+    carries SuggestedCCUParameters that differ from the CCU's current values and the user confirms.
+  minProtocolVersion: 6
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonPages.NewDashboardPages.BaseTemplateConfigurationPage.SaveCcuChanges'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateCcuProperies'
+  confidence: observed-in-code
+- id: addPacketParserModule
+  tag: packet-parser
+  kind: write
+  request: MessageHttpApiConfigRequest
+  response: MessageHttpApiConfigResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Create a Packet Parser module (one target host and protocol) by sending a one-module TemplateConfiguration
+    JSON.
+  description: |-
+    Request: CcuId, ConfigJson. ConfigJson is a serialized TemplateConfiguration (see notes md, "Config JSON") with
+    ProtocolVersion 66 and one entry in Modules. Module: Name = unique name "PacketParserModule-<protocol>[-n]" (app makes it
+    unique against all device names), Model = "PacketParserModule" + capitalised protocol, i.e. PacketParserModuleHttp,
+    PacketParserModuleTcp, PacketParserModuleUdp, PacketParserModuleFtp, PacketParserModuleMqtt. DeviceProperties as the
+    app sends them: IpAddress (host or DNS name), StayConnected ("True"/"False": true for tcp, udp, ftp, false for http and
+    mqtt), Port (http 80, ftp 21, udp 4096, tcp 1024, mqtt 1883). The Core allocates the module id and returns the new
+    module (and any children) in MessageHttpApiConfigResponse.AddedDevices; RemovedDevices is empty for adds. The app does
+    not cache the response, it relies on the device list broadcast. Core older than v66 uses the legacy HttpApiConfig
+    format ({Devices:[HttpApiDeviceInfo], TemplateDevices:[]}) and Model "PacketParserModule"; ignore it. A Core that
+    cannot handle the content answers MessageGenericResponse with ErrorCode 26.
+    Confirmed on Core 2025.2.32396 for one case only: an HTTP module (PacketParserModuleHttp) with one PacketParserVariable device, sent as a hand-built ConfigJson, with no template XML involved.
+    Module properties IpAddress, Port, StayConnected, InternalPollInterval, UseHttps; device properties ReadStateScriptPacketParser, InternalPollInterval, IsReadOnly. Placeholder ids Id -1 (module) and -2 (device), HardwareParentId 0, empty Guids for CategoryId and ZoneId.
+    The response listed both objects in AddedDevices (no RemovedDevices) and one MessageDeviceListUpdatedBroadcast followed. The Core allocated both ids and set the child's HardwareParentId to the new module id (negative ids are only labels).
+    The module got Interface IHardwareParentModule, DeviceType 7001 and serial PacketParser--<8 hex>. The device got serial PacketParser-Variable-<8 hex>.
+    The Core filled every other property with defaults. The module got 23 keys, among them ReadScriptPacketParser, CustomVariables, VltEpsilons, ServiceAttributesScriptsPacketParser, ServiceActionsScriptsPacketParser, ShouldDoPeriodicWrite, DeviceVariables, WriteScriptPacketParser, TemplateIdentity, User, Password, IgnoreSSLErrors and HttpAuthentification "None". The HTTP module did not keep a StayConnected key.
+    The device's ReadScriptPacketParser was filled with a commented example script. The state script ran at once: the device value (type 62) showed the script result in a sync taken seconds later.
+    Not tested: TCP, UDP, FTP or MQTT modules, Modbus, templates with scripts that reference other devices, partial failure.
+  minProtocolVersion: 66
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.PacketParserCommunicationHelper.AddPreconfiguredModule'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.TemplatesHelper.CreateModuleTemplate / DeviceTypeToModel'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.PacketParserHelper.GetDefaultProtocolPort / GetProtocolCanStayConnected'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.PacketParserConfig'
+  confidence: observed-in-code
+- id: addPacketParserDevice
+  tag: packet-parser
+  kind: write
+  request: MessageHttpApiConfigRequest
+  response: MessageHttpApiConfigResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Add one empty Packet Parser device under an existing module.
+  description: |-
+    ConfigJson is a TemplateConfiguration with ProtocolVersion 66 and one entry in Devices (not Modules). The device has
+    Name (unique), Model and HardwareParentId = module device id (required; the app refuses to send without it on v66).
+    DeviceProperties is omitted. Models: PacketParserSwitch, PacketParserDimmer, PacketParserThermostat,
+    PacketParserMultiValueSwitch, PacketParserTemperatureSensor, PacketParserElectricityMeter, PacketParserReedContact,
+    PacketParserVariable, PacketParserPushButton, PacketParserSlide, PacketParserHSBLight, PacketParserWhiteLight,
+    PacketParserAnalogInput (v78 per ModbusPacketParserAnalogInputMinProtocolVersion), PacketParserBlind. The Core fills in
+    default properties; scripts are written afterwards with updateDeviceProperties.
+    Not tested on a live Core. The module-plus-device form of the same message is confirmed, see addPacketParserModule.
+  minProtocolVersion: 66
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.PacketParserCommunicationHelper.AddDevice'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.TemplatesHelper.CreateDeviceTemplate'
+  - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddHttpApiDeviceDialog'
+  confidence: observed-in-code
+- id: importPacketParserTemplate
+  tag: templates
+  kind: write
+  request: MessageHttpApiConfigRequest
+  response: MessageHttpApiConfigResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Import a Packet Parser template. The app parses the XML locally and sends the finished module with all
+    devices as one JSON message.
+  description: |-
+    There is no "template file" message. The app (1) parses the XML template (XmlTemplateImport), (2) lets the user fill the
+    ImportParameters (default IpAddress etc.), name prefix, zone, category and choose which devices to keep, (3) replaces
+    every "$[ParamId]" token in names and in all DeviceProperties values (including script text) with the chosen values,
+    (4) serializes the resulting TemplateConfiguration to JSON and (5) sends it once as MessageHttpApiConfigRequest
+    {CcuId, ConfigJson}. ConfigJson shape: {ProtocolVersion:<template protocolVersion>, Modules:[{Name, Model, Id (negative
+    template id), ZoneId, CategoryId, DeviceProperties:{...}, Devices:[{Name, Model, Id, ZoneId, CategoryId,
+    DeviceProperties:{...}}]}], Id:<template guid or 00000000-...>, Revision, Name}. Ids inside a template are negative
+    placeholders (-1 is the module, -2.. the devices). They are only valid inside this JSON, so cross references such as
+    FormulaDeviceVariable.DeviceId inside the DeviceVariables/Variables property use the same negative ids, and the Core is
+    expected to rewrite them to real ids when it creates the devices (inferred: the client never remaps them). HardwareParentId
+    on devices inside a Module is left at 0; the Core derives the parent from nesting. The Core allocates all real ids and
+    returns the created module and devices in AddedDevices. One request is one transaction from the app's point of view; the
+    Core's atomicity on partial failure is unknown. ErrorCode 26 means the Core is too old for the template (template
+    protocolVersion greater than the Core's, or unknown model/property). The app's "template unsupported" warning appears when
+    template.ProtocolVersion is not supported by the connected Core. Zone and category ids are Guids (empty = none) and are only
+    meaningful from protocol 31. Properties of the template that no importer step touches (for example the template Name,
+    Producer, Description, CcuModel) are not sent, except Name. If the CCU is not a Packet Parser CCU the app refuses to list the
+    template (CcuModel must equal "PacketParserCCU").
+    Live result (Core 2025.2.32396): the Core accepts a hand-built ConfigJson without any template XML, and derives the parent from nesting (confirmed, see addPacketParserModule). Reference rewriting inside DeviceVariables and the template Name were not tested.
+  minProtocolVersion: 66
+  evidence:
+  - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Templates.XmlTemplateImport.ReadFromXmlFile / ReadFromZipArchive'
+  - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Templates.TemplateConfiguration.ReplaceImportParameters'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.NewDashboardPages.BaseTemplateConfigurationPage.SaveChanges'
+  - 'TapHome.Android: TapHome.Commons.CommonPages.NewDashboardPages.PacketParserTemplateConfigurationPage.TemplateConfigurationFinished'
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.PacketParserCommunicationHelper.AddTemplateDevices'
+  confidence: observed-in-code
+- id: addTemplateDevicesToExistingPacketParserModule
+  tag: templates
+  kind: write
+  request: MessageHttpApiConfigRequest
+  response: MessageHttpApiConfigResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Add several devices that are not wrapped in a module to an existing module.
+  description: |-
+    Same message as importPacketParserTemplate, but the TemplateConfiguration has Devices (each with HardwareParentId set to
+    the real module id) and no Modules. The app helper accepts this shape (a config with Devices or Modules, otherwise it
+    returns NoDevicesToAdd without sending). This is the shape exported by XmlTemplateExport when only a device list is
+    exported (no <Template> wrapper). Whether the Core accepts mixed Devices plus Modules in one request is unknown.
+  minProtocolVersion: 66
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.PacketParserCommunicationHelper.AddTemplateDevices(TemplateConfiguration)'
+  confidence: inferred
+- id: updateDevicePropertiesSingle
+  tag: scripts
+  kind: write
+  request: MessageUpdateDevicePropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDeviceUpdatedBroadcast
+  summary: Legacy single-device property update (Core below protocol 16).
+  description: |-
+    Fields: DeviceId, DeviceName, DeviceProperties. Only used by the app when the Core is older than protocol 16. Listed for
+    completeness; the CLI should use updateDeviceProperties.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.UpdateDevicePropertiesForMultipleDevicesForOldCore'
+  confidence: observed-in-code
+- id: httpApiSendHttpRequest
+  tag: packet-parser
+  kind: action
+  request: MessageHttpApiSendHttpRequest
+  response: MessageHttpApiSendHttpResponse
+  broadcasts: []
+  summary: Ask the Core to run one legacy HTTP API request (path, headers, body, answer parsing) and return what
+    it sent and received.
+  description: |-
+    Request: CcuId, SendHttpRequestParameters = JSON of HttpApiSendHttpRequestParameters {DeviceId, RootPath, IpAddress, Port,
+    ConnectionType, User, Password, AuthentificationId, HttpMethod, RelativePath, HttpAddHeaders, HttpBody, AnswerParse,
+    Formulas[], Script}. Response: RecievedHttpResponse (typo in name) = JSON of HttpApiRecievedHttpResponse {Request,
+    Response, VariablesValues[], Formulas[]}. The app shows Request, Response, the parsed variables and the evaluated
+    formulas in a dialog; empty Request means the Core could not build the request. It is the "check connection" button of the
+    old HTTP API device settings (properties ReadPath, ReadHeaders, ReadBody, AnswerParse, ...). It belongs to the pre-v66
+    HttpApi device model, whose properties still appear in the UI property tables. For protocol 66 script devices no
+    equivalent test message exists; use getScriptLastRunValues after the Core polled. The Core performs the request, not
+    the app, so the CLI must not call arbitrary URLs through it without the owner's approval (it makes the Core contact the host).
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.ServiceSettingsManager.CheckHttpRequest'
+  - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.HttpApiSendHttpRequestParameters'
+  confidence: observed-in-code
+- id: addModbusModule
+  tag: modbus
+  kind: write
+  request: MessageModbusConfigRequest
+  response: MessageModbusConfigResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Create a Modbus module (one slave) by sending a one-module TemplateConfiguration JSON.
+  description: |-
+    Request: CcuId, ConfigJson. ConfigJson = TemplateConfiguration {ProtocolVersion:56, Modules:[{Name:"ModbusModule[-n]",
+    Model:"ModbusModule", DeviceProperties:{SlaveId:"<1..247>" optional, IpAddress:"<host>" optional}}]}. The app sends
+    SlaveId and IpAddress only when known (the preconfigured flow after a scan). Response: AddedDevices, RemovedDevices
+    (GenericDevice[]). When exactly one non-module device was added the app caches it and opens its settings. ErrorCode 26
+    means the Core is too old. Message class names say "ModbusConfig" and the client method is named ModbusTcpConfig, but
+    the same message is used for RTU and TCP CCUs (CcuId decides).
+  minProtocolVersion: 56
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ModbusCommunicationHelper.AddPreconfiguredModule'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ModbusTcpConfig'
+  confidence: observed-in-code
+- id: addModbusDevice
+  tag: modbus
+  kind: write
+  request: MessageModbusConfigRequest
+  response: MessageModbusConfigResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Add one empty Modbus device under a module.
+  description: |-
+    ConfigJson = TemplateConfiguration {ProtocolVersion:56, Devices:[{Name, Model, HardwareParentId:<module id>}]}.
+    Models: ModbusSwitch, ModbusDimmer, ModbusThermostat, ModbusMultiValueSwitch, ModbusTemperatureSensor,
+    ModbusElectricityMeter, ModbusReedContact, ModbusVariable, ModbusPushButton, ModbusAnalogInput (ModbusModule is the
+    module itself). After the add, read and write scripts are filled with updateDeviceProperties. Modbus has no
+    device-level register table; registers are addressed inside the scripts via MODBUSR / MODBUSW.
+  minProtocolVersion: 56
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ModbusCommunicationHelper.AddDevice'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.TemplatesHelper.DeviceTypeToModel'
+  confidence: observed-in-code
+- id: importModbusTemplate
+  tag: templates
+  kind: write
+  request: MessageModbusConfigRequest
+  response: MessageModbusConfigResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Import a Modbus template; same flow as Packet Parser, different message.
+  description: |-
+    Identical client pipeline to importPacketParserTemplate (parse XML, fill ImportParameters, filter devices, replace
+    "$[Id]", serialize TemplateConfiguration to JSON), but sent as MessageModbusConfigRequest {CcuId, ConfigJson} and
+    answered with MessageModbusConfigResponse. Default Modbus ImportParameters are SlaveId (default "1") and IpAddress
+    (default "192.168.1.0"); on an RTU CCU the IpAddress parameter is dropped and every property whose value equals the
+    "$[IpAddress]" token is removed from the module and devices before sending. The template may carry
+    SuggestedCCUParameters (CCU properties); the app does not send them in the import but offers a follow-up
+    updateCcuProperties when CcuModel matches and the values differ. ConfigJson ProtocolVersion is taken from the
+    template (the template's protocolVersion attribute).
+  minProtocolVersion: 56
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonPages.NewDashboardPages.ModbusTemplateConfigurationPage'
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ModbusCommunicationHelper.AddTemplateDevices'
+  - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Templates.ModbusXmlTemplateExportConfig'
+  confidence: observed-in-code
+- id: getModbusRegistersInfo
+  tag: modbus
+  kind: read
+  request: MessageModbusRegistersInfoRequest
+  response: MessageModbusRegistersInfoResponse
+  broadcasts: []
+  summary: List which registers a Modbus module's scripts use and the last read/write results per register.
+  description: |-
+    Request: DeviceId (the module id; the client parameter is named moduleId). Response: Registers = map from register type
+    (SC, C, SH, H, D, A) to a list of ModbusRegisterInfo {Devices (ids that use it), Index, LastSuccessful/Unsuccessful
+    Read/Write ModbusTransaction, LastReadValue, ValueToWrite, LastUnsuccessfulWriteValue}. Read-only; useful as a health check
+    after an import.
+  minProtocolVersion: 56
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ModbusCommunicationHelper.GetRegistersInfo'
+  confidence: observed-in-code
+- id: runModbusManualTransaction
+  tag: modbus
+  kind: action
+  request: MessageModbusManualTransactionRequest
+  response: MessageModbusManualTransactionResponse
+  broadcasts: []
+  summary: Execute one hand-built Modbus read or write on the bus through the Core.
+  description: |-
+    Request: Transaction (ModbusManualTransaction: TransactionId Guid (the app generates one when empty), CcuId, IpAddress,
+    SlaveId, plus the base ModbusTransaction fields for function, register and value). The response carries the executed
+    transaction with its result. A write here changes the real device, so the CLI needs the owner's approval before using it.
+  minProtocolVersion: 56
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ModbusCommunicationHelper.RunManualTransaction'
+  confidence: observed-in-code
+- id: runModbusScan
+  tag: modbus
+  kind: action
+  request: MessageLongRunningTaskRequest
+  response: MessageLongRunningTaskResponse
+  broadcasts:
+  - MessageLongRunningTaskProgress
+  summary: Scan a range of slave ids on a Modbus CCU (long-running task with progress messages).
+  description: |-
+    Request: TaskId (client Guid) and Parameters = ModbusScanTaskRequestParameters {CcuId, IpAddress, Register
+    (ModbusRegisterType), RegisterIndex, FromSlaveId, ToSlaveId}. Progress arrives as MessageLongRunningTaskProgress; cancel
+    with MessageLongRunningTaskCancelRequest {TaskId}. The result lists responding slaves (the app then offers to add
+    preconfigured modules via addModbusModule). The progress message is delivered during the request and is not a
+    subscription broadcast. Polymorphic Parameters (LongRunningTaskParameters) need protobuf type tags that are in the
+    field-level catalog, not here.
+  minProtocolVersion: 56
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.ModbusCommunicationHelper.RunScan'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ExecuteLongRunningTask'
+  confidence: observed-in-code
+- id: addVirtualDevice
+  tag: virtual-devices
+  kind: write
+  request: MessageAddDeviceRequest
+  response: MessageAddDeviceResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Create a virtual device (switch, thermostat, multi-value switch, meters, lights, sensors, ...).
+  description: |-
+    Request fields as the app sets them: DeviceName (unique among all device names, may be a "${translation_key}" token, the
+    Core or UI resolves it), Icon = DeviceIcon.Unknown, Interface = C# interface class name (Switch, Dimmer, Thermostat,
+    Alarm, PushButton, HueBulb, TunableWhiteBulb, ElectricityMeter, TemperatureSensor, BrightnessSensor, WaterMeter,
+    GasMeter, RainCounterSensor, MultiValueSwitch, Slide, AdvancedBlinds, MotionSensor, GenericSensor, Co2AndVocSensor,
+    WindSpeedSensor, SmokeSensor, FloodSensor, ImpulseCounter), Model (see table in notes md), CcuId = null (virtual
+    devices belong to the Core's virtual interface), DeviceTypeId = int value of DeviceType (0 = None; HeatingDemand,
+    CoolingDemand, HeatingCoolingDemand for switches; HeatingCooling, CurrentHeatingCoolingMode, Heating, Cooling, Alert,
+    Fan4, Fan3, Presence, LightScene for multi-value switches; the int mapping needs DeviceType from the field catalog),
+    DeviceProperties = type-specific defaults (value names and icon ids for multi-value switches, OnStateName/OffStateName
+    and SafeValues for typed switches). SerialNumber not set. The Core allocates the id and returns AddedDevice plus the
+    full Ccus list. Min protocol versions per model: VirtualBlindGroup 7, VirtualElectricityMeterGroup 14,
+    VirtualWrappingElectricityMeter 14, VirtualTemperatureSensor 14, water/gas/rain meters 59, VirtualTunableWhiteLight 74,
+    any DeviceType other than None needs 4 (and int device types 26).
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddVirtualDeviceDialog.AddDevice'
+  - 'TapHome.Android: TapHome.Commons.DeviceCommunicationHelper.AddDevice'
+  - 'TapHome.Android: TapHome.Commons.CommonHelpers.DeviceTypeHelper.GetDeviceTypeSpecificProperties'
+  confidence: observed-in-code
+- id: addVirtualVariable
+  tag: virtual-devices
+  kind: write
+  request: MessageAddDeviceRequest
+  response: MessageAddDeviceResponse
+  broadcasts:
+  - MessageDeviceListUpdatedBroadcast
+  summary: Create a virtual variable (general, time based or sun based).
+  description: |-
+    Same message as addVirtualDevice with Interface = "Variable", DeviceTypeId = 0 and no DeviceProperties. Models:
+    VirtualVariableGeneral (a user-writable variable), time variables VirtualVariableCurrentYear (v63), Quarter,
+    MonthOfTheYear, WeekOfTheMonth, WeekOfTheYear, DayOfWeek, DayOfMonth (v63), HourOfDay, MinuteOfDay (v63 to v70, replaced),
+    CurrentMinute (v70), SecondOfDay (v63 to v70), CurrentSecond (v70), DateRange (v53), and sun variables
+    VirtualVariableSunUpDownState, VirtualVariableSunAzimuth, VirtualVariableSunElevation. After the add the app opens the
+    settings of the new device; value, unit and so on are written with updateDeviceProperties. The Core allocates the id.
+    Confirmed on Core 2025.2.32396 for VirtualVariableGeneral, see addDevice for the response. The time and sun variable models were not tried.
+  minProtocolVersion: 8
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonDialogs.AddVirtualVariableDialog.AddDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.ProtocolVersions.VariableMinProtocolVersion'
+  confidence: observed-in-code

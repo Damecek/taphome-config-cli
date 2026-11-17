@@ -1,0 +1,204 @@
+# Operations for the session lifecycle, pre-auth endpoints and Core lifecycle (tags: session, core).
+# Format of every entry (all files in this directory share it):
+#   id                  unique operationId
+#   tag                 one of the spec tags
+#   kind                read | write | subscribe | action
+#   request / response  protobuf class names from work/catalog/official.json (null when none)
+#   broadcasts          broadcast classes the Core pushes as a consequence
+#   summary, description, minProtocolVersion, evidence, confidence
+#   endpoint            optional, WebSocket endpoint (default /Core)
+#   security            optional, "none" for operations that need no session
+#   bareResponse        optional, the endpoint sends the response class without a MessageBase wrapper
+# Source: static reading of the decompiled TapHome Official Android app 2025.2.32375. Nothing here is verified against a live Core
+# unless openapi/verification.yaml says so. "GenericResponse OK" means MessageGenericResponse with ErrorCode == 1.
+
+- id: login
+  tag: session
+  kind: action
+  request: MessageLoginRequest
+  response: MessageLoginResponse
+  broadcasts: []
+  summary: Log in with a Core-local account (or a cloud account) and receive a SessionId.
+  description: |-
+    Open ws://<core>/Core, send one MessageBase carrying MessageLoginRequest with RequestsId 0, wait for MessageLoginResponse, then close this socket and keep SessionId.
+    The login socket is not the working socket: the session is used on a second /Core socket through reconnect.
+    Local account: LoginOrEmail is the user name (lower-case), PasswordHashOrAuthorizationToken is PasswordHash(password, 2), IsLocalAccount is true.
+    Cloud account: LoginOrEmail is the account e-mail, the secret is the per-location authorization token (a Guid from the cloud API), IsLocalAccount is false.
+    LocationId must equal the Core location Guid (learn it from /Identify or UDP discovery), otherwise the client treats the login as failed.
+    ClientProtocolVersion is 89 for the Official app line.
+    PasswordHash: lower-case hex of SHA-512 applied twice. The input of the first round is the UTF-8 text of the secret followed by a fixed constant compiled into the app (see docs/auth.md). An empty secret is sent as null.
+    The hash is replayable on the LAN (plain ws://), so treat it as a secret.
+    MessageLoginResponse.LoginResultId: 0 None, 1 Ok, 2 WrongPassword, 3 WrongLogin, 4 WrongAuthToken, 5 Deleted, 6 AppTooOld.
+    Login is exempt from the receive acknowledgement rule.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationLoginHelper.Login'
+  - 'TapHome.Android: TapHome.Commons.ApplicationManager.TryLoginGlobaUserToEndpointAsync'
+  - 'TapHome.Core.Lib.Common: TapHome.Core.Lib.Password.PasswordHash'
+  - 'TapHome.Core.Lib.Model: MessageLoginRequest, MessageLoginResponse'
+  confidence: observed-in-code
+  endpoint: /Core
+  security: none
+- id: reconnect
+  tag: session
+  kind: action
+  request: MessageReconnectRequest
+  response: MessageReconnectResponse
+  broadcasts: []
+  summary: Present the SessionId on a new /Core socket and receive the initial sync (devices, interfaces, permissions,
+    dashboards, smart rules, Core properties).
+  description: |-
+    Must be the first message on every working /Core socket, with RequestsId 1. The session is not carried in the URL or in headers.
+    A fresh client sends all changeset ids as 0 and an empty DbHash to get every section. The Core skips sections whose changeset id is not newer.
+    MessageReconnectResponse accepts a RequestsId that differs from the request, the client maps it to the pending reconnect.
+    There is no separate initial-sync request: one response carries Ccus, Devices, UserInfo, LocationInfo, CurrentProtocolVersion, CoreVersionString (format YYYY.R.BUILD), permissions with changeset ids, DashboardSets, Dashboards, SmartRules (each element is a serialized TriggerModel), DeviceTimers, DbHash, SmartRuleErrorStatuses and CoreProperties.
+    ReconnectResultId: 0 None, 1 Ok, 2 WrongSession (log in again), 3 TooManyConnections, 4 FaultyStorageClient (client cache is invalid, drop it), 5 RemoteAccessDisabled, 6 AppTooOld, 7 NotReady (Core still starting, retry after 10 s), 8 WrongLocationId.
+    Timestamps in the sync (confirmed on Core 2025.2.32396): int64 fields named ...TUtc are .NET ticks (100 ns since 0001-01-01 UTC). ValueLog.ChangedOnTHUtc is TapHome time, seconds since 2016-01-01 UTC.
+    Every configuration write is visible in a fresh sync from a new socket seconds later, so the sync is the way to verify a write.
+    Sessions have no expiry field and no refresh message. There is no logout message, the client just closes the socket and forgets the SessionId.
+    After success the client sends MessageReceiveAcknowledgement every 4 s and a WebSocket ping every 6 s.
+    A reconnect with an unknown SessionId returns WrongSession without CurrentProtocolVersion or CoreVersionString (tested on Core 2025.2.32396), so the Core version cannot be read before login.
+    A client without a cached DbHash gets FaultyStorageClient (4) together with the current DbHash and must send the reconnect request again with that DbHash. The second response has ReconnectResultId 1 and the complete configuration.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SendReconnect'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnect'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HandleReconnectResultNotOK'
+  - 'TapHome.Core.Lib.Model: MessageReconnectRequest, MessageReconnectResponse'
+  confidence: observed-in-code
+  endpoint: /Core
+- id: receiveAcknowledgement
+  tag: session
+  kind: action
+  request: MessageReceiveAcknowledgement
+  response: null
+  broadcasts: []
+  summary: Acknowledge received messages by their stamps, every 4 seconds.
+  description: |-
+    Active when the Core reports CurrentProtocolVersion >= 23. The client collects the stamp of every received message that requires an acknowledgement and sends one MessageReceiveAcknowledgement with ReceivedMessagesStamps (repeated int64, not packed, no RequestsId) every 4 s.
+    stamp = (MessageType << 32) | RequestsId, with MessageType Request 1, Response 2, Broadcast 3. Example: a Response with RequestsId 7 has stamp 0x0000000200000007.
+    No acknowledgement is needed for: acknowledgements, Stream messages, MessageLoginRequest, MessageCheckTunnelStatusRequest, and the inner messages of a MessageContainer (the container itself is acknowledged).
+    The sender closes the socket (close code 1008) when a sent stamp stays unacknowledged for more than 10.5 s. The Core probably applies the same rule to clients (not tested).
+    The acknowledgement has no reply and is not itself acknowledged.
+  minProtocolVersion: 23
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.CommunicationSocketState.AckMessages'
+  - 'TapHome.Android: Com.TapHome.Communication.CommunicationSocketState.CheckReceivedAcks'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AckTimerTick'
+  - 'TapHome.Core.Lib.Model: MessageReceiveAcknowledgement'
+  confidence: observed-in-code
+  endpoint: /Core
+- id: identifyCore
+  tag: session
+  kind: read
+  request: null
+  response: LocationInfo
+  broadcasts: []
+  summary: Read the Core identity (LocationId and Name) before logging in.
+  description: |-
+    Open ws://<core>/Identify and send nothing. The Core sends one binary frame, a bare LocationInfo protobuf message (not wrapped in MessageBase), and the client closes the socket (7 s timeout in the app).
+    The app only reads LocationId (Guid, tag 1) and Name (tag 2). A Name of "<New installation>" or empty means an unconfigured Core, which is set up through /SetUp.
+    Whether AccessToken or AuthorizationToken are filled on this socket is not known. Treat them as secrets if they are.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.IdentifyClient.IdentifyCore'
+  - 'TapHome.Android: TapHome.Commons.CommunicationHelper.LocationCommunicationHelper.IdentifyLocation'
+  confidence: observed-in-code
+  endpoint: /Identify
+  security: none
+  bareResponse: true
+- id: setupNewLocation
+  tag: session
+  kind: write
+  request: MessageSetupNewLocationRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: 'First-time setup of an unconfigured Core: claims it for a user using the setup access token. Sent to
+    ws://<ip>/SetUp, not /Core.'
+  description: |-
+    Request fields: UserId (Guid), Email (string), UserName (string), LocationName (string), AccessToken (string), CurrentDateTimeUtc (DateTime), CompanyId (int), LanguageCode (string). Response: MessageGenericResponse.
+    Transport: open ws://<core>/SetUp, send one message, read the MessageGenericResponse (15 s timeout). ErrorCode 1 is ok, 5 means the Core is already set up. AccessToken is the full setup token printed on the Core, which the user types in.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.SetUpNewLocation.SetUpNewLocationRequest'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageSetupNewLocationRequest'
+  confidence: observed-in-code
+  endpoint: /SetUp
+  security: none
+- id: forgottenPassword
+  tag: session
+  kind: action
+  request: MessageForgottenPasswordRequest
+  response: MessageForgottenPasswordResponse
+  broadcasts: []
+  summary: Start password reset for a local user, authorized by the access token.
+  description: |-
+    Request fields: LocationId (Guid), Login (string), AccessToken (string). Response: MessageForgottenPasswordResponse with fields UserId (Guid), ForgottenPasswordResultId (int).
+    Transport: open ws://<core>/ForgottenPassword. AccessToken is the setup token printed on the Core. The reply carries the UserId needed by setNewPassword.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ForgottenPassword.cs: Com.TapHome.Communication.ForgottenPassword'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageForgottenPasswordRequest'
+  confidence: observed-in-code
+  endpoint: /ForgottenPassword
+  security: none
+- id: setNewPassword
+  tag: session
+  kind: write
+  request: MessageSetNewPasswordRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Set a new password hash for a local user, authorized by the access token.
+  description: |-
+    Request fields: UserId (Guid), NewPasswordHash (string), Login (string), AccessToken (string). Response: MessageGenericResponse.
+    Transport: same /ForgottenPassword socket. NewPasswordHash uses the same PasswordHash(password, 2) as login. ErrorCode 2 (Unauthorized) means the access token is wrong.
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.NewPasswordForAdmin.cs'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageSetNewPasswordRequest'
+  confidence: observed-in-code
+  endpoint: /ForgottenPassword
+  security: none
+- id: restartCore
+  tag: core
+  kind: action
+  request: MessageRestartCoreRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Restart the Core application (touch point; only needed by very old Cores).
+  description: No fields. The device and interface operations in this file never require it on protocol 13 and up.
+    The app uses it after module replace only for protocol below 13.
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.CommonPages.TapHomeBusModuleReplacePage.OnModuleReplaced'
+  confidence: observed-in-code
+- id: getBasicCoreProperties
+  tag: core
+  kind: read
+  request: MessageGetBasicCorePropertiesRequest
+  response: MessageGetBasicCorePropertiesResponse
+  broadcasts: []
+  summary: Read basic Core properties as generic key/value list.
+  description: |-
+    Request fields: none. Response: MessageGetBasicCorePropertiesResponse with fields Properties (List<GenericProperty>).
+    Confirmed on Core 2025.2.32396: about 20 properties, each a Name plus a typed ProtoValue (GenericValue). Names seen: Name, Latitude, Longitude, Version, Core process uptime, TimeZoneId, OS Image Version, Hardware Platform, Current Time, LanguageCode, Runtimes, mDNSName, Currency, CurrencyPositionId, DHCP, IpAddress, NetworkMask, Gateway, DNSServer, MACAddress.
+    All values are strings except Current Time, a uint32 in seconds since 2000-01-01 that equals the Core's local wall-clock time (not UTC).
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetCoreProperties'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetBasicCorePropertiesRequest'
+  confidence: observed-in-code
+- id: updateBasicCoreProperties
+  tag: core
+  kind: write
+  request: MessageUpdateBasicCorePropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageCorePropertiesUpdatedBroadcast
+  summary: Write basic Core properties as generic key/value list.
+  description: 'Request fields: Properties (List<GenericProperty>). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateCoreProperties'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateBasicCorePropertiesRequest'
+  confidence: observed-in-code

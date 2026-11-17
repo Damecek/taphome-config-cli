@@ -1,0 +1,1616 @@
+# Operations for users, permissions, backup, Core lifecycle, updates, dashboards, access control, data export, media and TapHome API.
+# Format of every entry (all files in this directory share it):
+#   id                  unique operationId
+#   tag                 one of the spec tags
+#   kind                read | write | subscribe | action
+#   request / response  protobuf class names from work/catalog/official.json (null when none)
+#   broadcasts          broadcast classes the Core pushes as a consequence
+#   summary, description, minProtocolVersion, evidence, confidence
+#   endpoint            optional, WebSocket endpoint (default /Core)
+#   security            optional, "none" for operations that need no session
+#   bareResponse        optional, the endpoint sends the response class without a MessageBase wrapper
+# Source: static reading of the decompiled TapHome Official Android app 2025.2.32375. Nothing here is verified against a live Core
+# unless openapi/verification.yaml says so. "GenericResponse OK" means MessageGenericResponse with ErrorCode == 1.
+
+- id: updateDateRange
+  tag: access
+  kind: write
+  request: MessageUpdateDateRangeRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Update Date Range.
+  description: 'Request fields: DateRange (DateRange). Response: MessageGenericResponse.'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DateRangesCommunicationHelper.UpdateDateRange'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDateRange'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDateRangeRequest'
+  confidence: observed-in-code
+- id: removeDateRange
+  tag: access
+  kind: write
+  request: MessageRemoveDateRangeRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Remove Date Range.
+  description: 'Request fields: DateRangeIds (int[]). Response: MessageGenericResponse.'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DateRangesCommunicationHelper.RemoveDateRange'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.RemoveDateRange'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageRemoveDateRangeRequest'
+  confidence: observed-in-code
+- id: updateDateRangeInterval
+  tag: access
+  kind: write
+  request: MessageUpdateDateRangeIntervalRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Update Date Range Interval.
+  description: 'Request fields: Interval (DateRangeInterval). Response: MessageGenericResponse.'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DateRangesCommunicationHelper.UpdateDateRangeInterval'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDateRangeInterval'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDateRangeIntervalRequest'
+  confidence: observed-in-code
+- id: removeDateRangeInterval
+  tag: access
+  kind: write
+  request: MessageRemoveDateRangeIntervalRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Remove Date Range Interval.
+  description: 'Request fields: IntervalIds (int[]). Response: MessageGenericResponse.'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: TapHome.Commons.DateRangesCommunicationHelper.RemoveDateRangeInterval'
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.RemoveDateRangeInterval'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageRemoveDateRangeIntervalRequest'
+  confidence: observed-in-code
+- id: tapHomeApiGetDeviceValue
+  tag: taphome-api
+  kind: read
+  request: MessageTapHomeApiGetDeviceValueRequest
+  response: MessageTapHomeApiResponse
+  broadcasts: []
+  summary: Read the values of one exposed device by external id (tunnel only).
+  description: |-
+    Request fields: DeviceId (int), OnlyThisType (ValueLogType?). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+    Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it. Not tested with an exposed device id.
+  minProtocolVersion: 34
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiGetDeviceValueRequest'
+  confidence: inferred
+- id: tapHomeApiGetMultipleDeviceValues
+  tag: taphome-api
+  kind: read
+  request: MessageTapHomeApiGetMultipleDeviceValuesRequest
+  response: MessageTapHomeApiResponse
+  broadcasts: []
+  summary: Read values of several or all exposed devices (tunnel only, tunnel protocol version 2+).
+  description: |-
+    Request fields: Devices (List<MessageTapHomeApiGetMultipleDeviceValuesRequestElement>), AllDevices (bool). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+    Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it. The test sent AllDevices true.
+  minProtocolVersion: 34
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiGetMultipleDeviceValuesRequest'
+  confidence: inferred
+- id: tapHomeApiLocationInfo
+  tag: taphome-api
+  kind: read
+  request: MessageTapHomeApiLocationInfoRequest
+  response: MessageTapHomeApiResponse
+  broadcasts: []
+  summary: Return location id, name and TapHome API version (tunnel only).
+  description: |-
+    Request fields: none. Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+    Tunnel only. On Core 2025.2.32396 this message got no response within 60 s on a normal client session (login, then reconnect). The session stayed usable afterwards. The cloud sends it through the tunnel, so a LAN client cannot use it.
+  minProtocolVersion: 34
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiLocationInfoRequest'
+  confidence: inferred
+- id: tapHomeApiSetDeviceValue
+  tag: taphome-api
+  kind: write
+  request: MessageTapHomeApiSetDeviceValueRequest
+  response: MessageTapHomeApiResponse
+  broadcasts: []
+  summary: Write device values through the TapHome API (tunnel only, control only, not configuration).
+  description: |-
+    Request fields: Values (Dictionary<ValueLogType, double>). Response: MessageTapHomeApiResponse with fields TapHomeApiResponse (TapHomeApiResponseBase).
+    Tunnel message like the other TapHomeApi messages, whose reads got no answer on a client session (see tapHomeApiLocationInfo). This write was not tried.
+    The same request class is also listed as setDeviceValuesByType, which is the primary path entry.
+  minProtocolVersion: 34
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageTapHomeApiSetDeviceValueRequest'
+  confidence: inferred
+- id: getSlaveInterfaces
+  tag: taphome-api
+  kind: read
+  request: MessageGetSlaveInterfacesRequest
+  response: MessageGetSlaveInterfacesResponse
+  broadcasts: []
+  summary: Get Slave Interfaces.
+  description: 'Request fields: none. Response: MessageGetSlaveInterfacesResponse with fields SlaveInterfaces (SlaveInterface[]).'
+  minProtocolVersion: 5
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetSlaveInterfaces'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetSlaveInterfacesRequest'
+  confidence: observed-in-code
+- id: getSlaveInterface
+  tag: taphome-api
+  kind: read
+  request: MessageGetSlaveInterfaceRequest
+  response: MessageGetSlaveInterfaceResponse
+  broadcasts: []
+  summary: Get Slave Interface.
+  description: 'Request fields: SlaveInterfaceId (int). Response: MessageGetSlaveInterfaceResponse with fields SlaveInterface
+    (SlaveInterface).'
+  minProtocolVersion: 5
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetSlaveInterface'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetSlaveInterfaceRequest'
+  confidence: observed-in-code
+- id: getSlaveInterfaceDevices
+  tag: taphome-api
+  kind: read
+  request: MessageGetSlaveInterfaceDevicesRequest
+  response: MessageGetSlaveInterfaceDevicesResponse
+  broadcasts: []
+  summary: Get Slave Interface Devices.
+  description: 'Request fields: SlaveInterfaceId (int). Response: MessageGetSlaveInterfaceDevicesResponse with fields
+    SlaveInterfaceDevices (SlaveInterfaceDevice[]).'
+  minProtocolVersion: 5
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetSlaveInterfaceDevices'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetSlaveInterfaceDevicesRequest'
+  confidence: observed-in-code
+- id: updateSlaveInterface
+  tag: taphome-api
+  kind: write
+  request: MessageUpdateSlaveInterfaceRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Update Slave Interface.
+  description: 'Request fields: SlaveInterface (SlaveInterface). Response: MessageGenericResponse.'
+  minProtocolVersion: 5
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateSlaveInterface'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateSlaveInterfaceRequest'
+  confidence: observed-in-code
+- id: updateSlaveInterfaceDevice
+  tag: taphome-api
+  kind: write
+  request: MessageUpdateSlaveInterfaceDeviceRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Update Slave Interface Device.
+  description: 'Request fields: SlaveInterfaceDevice (SlaveInterfaceDevice). Response: MessageGenericResponse.'
+  minProtocolVersion: 5
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateSlaveInterfaceDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateSlaveInterfaceDeviceRequest'
+  confidence: observed-in-code
+- id: deleteSlaveInterface
+  tag: taphome-api
+  kind: write
+  request: MessageDeleteSlaveInterfaceRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Delete Slave Interface.
+  description: 'Request fields: SlaveInterfaceId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 5
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteSlaveInterface'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteSlaveInterfaceRequest'
+  confidence: observed-in-code
+- id: deleteSlaveInterfaceDevice
+  tag: taphome-api
+  kind: write
+  request: MessageDeleteSlaveInterfaceDeviceRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Delete Slave Interface Device.
+  description: 'Request fields: DeviceId (int), SlaveInterfaceId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 5
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteSlaveInterfaceDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteSlaveInterfaceDeviceRequest'
+  confidence: observed-in-code
+- id: changeRemoteAccessForUser
+  tag: remote-access
+  kind: write
+  request: MessageChangeRemoteAccessForUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Allow or deny cloud (tunnel) access for one user.
+  description: 'Request fields: UserId (Guid), RemoteAccess (bool). Response: MessageGenericResponse.'
+  minProtocolVersion: 64
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ChangeRemoteAccessForUser'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageChangeRemoteAccessForUserRequest'
+  confidence: observed-in-code
+- id: connectToTapHomeProxy
+  tag: remote-access
+  kind: action
+  request: MessageConnectToTapHomeProxyRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Ask the Core to open a support connection to TapHome (button visible only to TapHome employees).
+  description: 'Request fields: none. Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ConnectToTapHomeProxy'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageConnectToTapHomeProxyRequest'
+  confidence: observed-in-code
+- id: checkTunnelStatus
+  tag: remote-access
+  kind: read
+  request: MessageCheckTunnelStatusRequest
+  response: MessageCheckTunnelStatusResponse
+  broadcasts: []
+  summary: Query tunnel validity, connection state and cloud time. Cloud-side service message, never sent by the
+    app.
+  description: 'Request fields: none. Response: MessageCheckTunnelStatusResponse with fields Valid (bool), TunnelConnected
+    (bool), CloudTimeTicksUtc (long).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageCheckTunnelStatusRequest'
+  confidence: inferred
+- id: coreReconnect
+  tag: remote-access
+  kind: action
+  request: MessageCoreReconnectRequest
+  response: MessageCoreReconnectResponse
+  broadcasts: []
+  summary: Core announces itself to the cloud tunnel (location id, session id, versions, uptime, MAC). Sent by the
+    Core, never by the app.
+  description: 'Request fields: LocationId (Guid), SessionId (Guid), MacAddress (string), TapHomeCoreVersion (string),
+    OsImageVersion (string), NetFrameworkVersion (string), CoreUpTimeMs (long), CoreTunnelProtocolVersion (int),
+    PlatformName (string). Response: MessageCoreReconnectResponse with fields ReconnectResultId (int).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageCoreReconnectRequest'
+  confidence: inferred
+- id: getUsersList
+  tag: users
+  kind: read
+  request: MessageGetUsersListRequest
+  response: MessageGetUsersListResponse
+  broadcasts: []
+  summary: List users known to the Core.
+  description: 'Request fields: none. Response: MessageGetUsersListResponse with fields Users (UserWithoutHash[]).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUsers'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUsersListRequest'
+  confidence: observed-in-code
+- id: createLocalUser
+  tag: users
+  kind: write
+  request: MessageCreateLocalUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Create a Core-local user (login and password hash).
+  description: 'Request fields: Login (string), PasswordHash (string), Email (string), Name (string), Permissions
+    (UserPermission). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.CreateLocalAccount'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageCreateLocalUserRequest'
+  confidence: observed-in-code
+- id: addGlobalUser
+  tag: users
+  kind: write
+  request: MessageAddGlobalUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Grant a cloud account (by email) access to this Core with given permissions.
+  description: 'Request fields: Email (string), Name (string), Permissions (UserPermission). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddGlobalAccount'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageAddGlobalUserRequest'
+  confidence: observed-in-code
+- id: removeGlobalUser
+  tag: users
+  kind: write
+  request: MessageRemoveGlobalUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Remove a cloud account from this Core.
+  description: 'Request fields: UserId (Guid). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.RemoveGlobalUser'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageRemoveGlobalUserRequest'
+  confidence: observed-in-code
+- id: deleteLocalUser
+  tag: users
+  kind: write
+  request: MessageDeleteLocalUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Delete Local User.
+  description: 'Request fields: UserId (Guid). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.RemoveLocalUser'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteLocalUserRequest'
+  confidence: observed-in-code
+- id: changePasswordForLocalUser
+  tag: users
+  kind: write
+  request: MessageChangePasswordForLocalUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Change Password For Local User.
+  description: 'Request fields: UserId (Guid), OldPasswordHash (string), NewPasswordHash (string). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ChangePasswordForLocalUser'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageChangePasswordForLocalUserRequest'
+  confidence: observed-in-code
+- id: changeNameForLocalUser
+  tag: users
+  kind: write
+  request: MessageChangeNameForLocalUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Change Name For Local User.
+  description: 'Request fields: UserId (Guid), Name (string). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ChangeNameForLocalUser'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageChangeNameForLocalUserRequest'
+  confidence: observed-in-code
+- id: changeEmailForLocalUser
+  tag: users
+  kind: write
+  request: MessageChangeEmailForLocalUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Change Email For Local User.
+  description: 'Request fields: UserId (Guid), Email (string). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ChangeEmailForLocalUser'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageChangeEmailForLocalUserRequest'
+  confidence: observed-in-code
+- id: changePermissionsForLocalUser
+  tag: users
+  kind: write
+  request: MessageChangePermissionsForLocalUserRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Change Permissions For Local User.
+  description: 'Request fields: UserId (Guid), Permissions (UserPermission). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ChangePermissionsForLocalUser'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageChangePermissionsForLocalUserRequest'
+  confidence: observed-in-code
+- id: getUserManagementLog
+  tag: users
+  kind: read
+  request: MessageGetUserManagementLogRequest
+  response: MessageGetUserManagementLogResponse
+  broadcasts: []
+  summary: Get User Management Log.
+  description: 'Request fields: none. Response: MessageGetUserManagementLogResponse with fields UserManagementLogEntries
+    (UserManagementLog[]).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserManagementLog'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserManagementLogRequest'
+  confidence: observed-in-code
+- id: updateClientDevice
+  tag: users
+  kind: write
+  request: MessageUpdateClientDeviceRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Register the app client device (platform, version, device id, push client id) with the Core.
+  description: 'Request fields: Platform (string), SoftwareVersion (string), DeviceId (string), ClientDeviceName
+    (string), ServerClientDeviceId (long). Response: MessageGenericResponse.'
+  minProtocolVersion: 9
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateClientDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateClientDeviceRequest'
+  confidence: observed-in-code
+- id: deleteGroupPermissionsForDashboard
+  tag: permissions
+  kind: write
+  request: MessageDeleteGroupPermissionsForDashboardRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsForDashboardDeletedBroadcast
+  summary: Delete Group Permissions For Dashboard.
+  description: 'Request fields: DashboardId (Guid), GroupId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteGroupPermissionsForDashboard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteGroupPermissionsForDashboardRequest'
+  confidence: observed-in-code
+- id: deleteGroupPermissionsForDevice
+  tag: permissions
+  kind: write
+  request: MessageDeleteGroupPermissionsForDeviceRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsForDeviceDeletedBroadcast
+  summary: Delete Group Permissions For Device.
+  description: 'Request fields: DeviceId (int), GroupId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteGroupPermissionsForDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteGroupPermissionsForDeviceRequest'
+  confidence: observed-in-code
+- id: deleteGroupPermissionsForTrigger
+  tag: permissions
+  kind: write
+  request: MessageDeleteGroupPermissionsForTriggerRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsForTriggerDeletedBroadcast
+  summary: Delete Group Permissions For Trigger.
+  description: 'Request fields: TriggerId (long), GroupId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteGroupPermissionsForTrigger'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteGroupPermissionsForTriggerRequest'
+  confidence: observed-in-code
+- id: deleteGroupPermissionsGeneral
+  tag: permissions
+  kind: write
+  request: MessageDeleteGroupPermissionsGeneralRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsGeneralDeletedBroadcast
+  summary: Delete Group Permissions General.
+  description: 'Request fields: GroupId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteGroupPermissionsGeneral'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteGroupPermissionsGeneralRequest'
+  confidence: observed-in-code
+- id: deletePermissionsForDashboards
+  tag: permissions
+  kind: write
+  request: MessageDeletePermissionsForDashboardsRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsForDashboardsDeletedBroadcast
+  summary: Delete Permissions For Dashboards.
+  description: 'Request fields: DashboardIds (List<Guid>), GroupIds (List<int>), UserIds (List<Guid>). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeletePermissionsForDashboards'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeletePermissionsForDashboardsRequest'
+  confidence: observed-in-code
+- id: deletePermissionsForDevices
+  tag: permissions
+  kind: write
+  request: MessageDeletePermissionsForDevicesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsForDevicesDeletedBroadcast
+  summary: Delete Permissions For Devices.
+  description: 'Request fields: DeviceIds (List<int>), GroupIds (List<int>), UserIds (List<Guid>). Response: MessageGenericResponse.'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeletePermissionsForDevices'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeletePermissionsForDevicesRequest'
+  confidence: observed-in-code
+- id: deletePermissionsForTriggers
+  tag: permissions
+  kind: write
+  request: MessageDeletePermissionsForTriggersRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsForTriggersDeletedBroadcast
+  summary: Delete Permissions For Triggers.
+  description: 'Request fields: TriggerIds (List<long>), GroupIds (List<int>), UserIds (List<Guid>). Response: MessageGenericResponse.'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeletePermissionsForSmartRules'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeletePermissionsForTriggersRequest'
+  confidence: observed-in-code
+- id: deletePermissionsGeneral
+  tag: permissions
+  kind: write
+  request: MessageDeletePermissionsGeneralRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsGeneralDeletedBroadcast
+  summary: Delete Permissions General.
+  description: 'Request fields: GroupIds (List<int>), UserIds (List<Guid>). Response: MessageGenericResponse.'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeletePermissionsGeneral'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeletePermissionsGeneralRequest'
+  confidence: observed-in-code
+- id: deleteUserPermissionsForDashboard
+  tag: permissions
+  kind: write
+  request: MessageDeleteUserPermissionsForDashboardRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsForDashboardDeletedBroadcast
+  summary: Delete User Permissions For Dashboard.
+  description: 'Request fields: DashboardId (Guid), UserId (Guid). Response: MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteUserPermissionsForDashboard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteUserPermissionsForDashboardRequest'
+  confidence: observed-in-code
+- id: deleteUserPermissionsForDevice
+  tag: permissions
+  kind: write
+  request: MessageDeleteUserPermissionsForDeviceRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsForDeviceDeletedBroadcast
+  summary: Delete User Permissions For Device.
+  description: 'Request fields: DeviceId (int), UserId (Guid). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteUserPermissionsForDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteUserPermissionsForDeviceRequest'
+  confidence: observed-in-code
+- id: deleteUserPermissionsForTrigger
+  tag: permissions
+  kind: write
+  request: MessageDeleteUserPermissionsForTriggerRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsForTriggerDeletedBroadcast
+  summary: Delete User Permissions For Trigger.
+  description: 'Request fields: TriggerId (long), UserId (Guid). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteUserPermissionsForTrigger'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteUserPermissionsForTriggerRequest'
+  confidence: observed-in-code
+- id: deleteUserPermissionsGeneral
+  tag: permissions
+  kind: write
+  request: MessageDeleteUserPermissionsGeneralRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsGeneralDeletedBroadcast
+  summary: Delete User Permissions General.
+  description: 'Request fields: UserId (Guid). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteUserPermissionsGeneral'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteUserPermissionsGeneralRequest'
+  confidence: observed-in-code
+- id: getDefaultGroupPermissionsForDevices
+  tag: permissions
+  kind: read
+  request: MessageGetDefaultGroupPermissionsForDevicesRequest
+  response: MessageGetDefaultGroupPermissionsForDevicesResponse
+  broadcasts: []
+  summary: Get Default Group Permissions For Devices.
+  description: 'Request fields: none. Response: MessageGetDefaultGroupPermissionsForDevicesResponse with fields
+    DefaultGroupPermissionsForDevices (DefaultGroupPermissionsForDevices[]).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDefaultGroupPermissionsForDevicesRequest'
+  confidence: inferred
+- id: getDefaultGroupPermissionsForTriggers
+  tag: permissions
+  kind: read
+  request: MessageGetDefaultGroupPermissionsForTriggersRequest
+  response: MessageGetDefaultGroupPermissionsForTriggersResponse
+  broadcasts: []
+  summary: Get Default Group Permissions For Triggers.
+  description: 'Request fields: none. Response: MessageGetDefaultGroupPermissionsForTriggersResponse with fields
+    DefaultGroupPermissionsForTriggers (DefaultGroupPermissionsForTriggers[]).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDefaultGroupPermissionsForTriggersRequest'
+  confidence: inferred
+- id: getGroupPermissionsForDashboard
+  tag: permissions
+  kind: read
+  request: MessageGetGroupPermissionsForDashboardRequest
+  response: MessageGetGroupPermissionsForDashboardResponse
+  broadcasts: []
+  summary: Get Group Permissions For Dashboard.
+  description: 'Request fields: DashboardId (Guid). Response: MessageGetGroupPermissionsForDashboardResponse with
+    fields GroupPermissionsForDashboard (GroupPermissionsForDashboard[]).'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetGroupPermissionsForDashboardRequest'
+  confidence: inferred
+- id: getGroupPermissionsForDevice
+  tag: permissions
+  kind: read
+  request: MessageGetGroupPermissionsForDeviceRequest
+  response: MessageGetGroupPermissionsForDeviceResponse
+  broadcasts: []
+  summary: Get Group Permissions For Device.
+  description: 'Request fields: DeviceId (int). Response: MessageGetGroupPermissionsForDeviceResponse with fields
+    GroupPermissionsForDevice (GroupPermissionsForDevice[]).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetGroupPermissionsForDeviceRequest'
+  confidence: inferred
+- id: getGroupPermissionsForTrigger
+  tag: permissions
+  kind: read
+  request: MessageGetGroupPermissionsForTriggerRequest
+  response: MessageGetGroupPermissionsForTriggerResponse
+  broadcasts: []
+  summary: Get Group Permissions For Trigger.
+  description: 'Request fields: TriggerId (long). Response: MessageGetGroupPermissionsForTriggerResponse with fields
+    GroupPermissionsForTrigger (GroupPermissionsForTrigger[]).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetGroupPermissionsForTriggerRequest'
+  confidence: inferred
+- id: getGroupPermissionsGeneral
+  tag: permissions
+  kind: read
+  request: MessageGetGroupPermissionsGeneralRequest
+  response: MessageGetGroupPermissionsGeneralResponse
+  broadcasts: []
+  summary: Get Group Permissions General.
+  description: 'Request fields: none. Response: MessageGetGroupPermissionsGeneralResponse with fields GroupPermissionsGeneral
+    (GroupPermissionsGeneral[]).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetGroupPermissionsGeneralRequest'
+  confidence: inferred
+- id: getUserPermissionsForDashboard
+  tag: permissions
+  kind: read
+  request: MessageGetUserPermissionsForDashboardRequest
+  response: MessageGetUserPermissionsForDashboardResponse
+  broadcasts: []
+  summary: Get User Permissions For Dashboard.
+  description: 'Request fields: DashboardId (Guid). Response: MessageGetUserPermissionsForDashboardResponse with
+    fields UserPermissionsForDashboard (UserPermissionsForDashboard[]).'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForDashboard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForDashboardRequest'
+  confidence: observed-in-code
+- id: getUserPermissionsForDashboards
+  tag: permissions
+  kind: read
+  request: MessageGetUserPermissionsForDashboardsRequest
+  response: MessageGetUserPermissionsForDashboardsResponse
+  broadcasts: []
+  summary: Get User Permissions For Dashboards.
+  description: 'Request fields: DashboardIds (List<Guid>). Response: MessageGetUserPermissionsForDashboardsResponse
+    with fields UserPermissionsForDashboards (UserPermissionsForDashboard[]).'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForDashboards'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForDashboardsRequest'
+  confidence: observed-in-code
+- id: getUserPermissionsForDevice
+  tag: permissions
+  kind: read
+  request: MessageGetUserPermissionsForDeviceRequest
+  response: MessageGetUserPermissionsForDeviceResponse
+  broadcasts: []
+  summary: Get User Permissions For Device.
+  description: 'Request fields: DeviceId (int). Response: MessageGetUserPermissionsForDeviceResponse with fields
+    UserPermissionsForDevice (UserPermissionsForDevice[]).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForDeviceRequest'
+  confidence: observed-in-code
+- id: getUserPermissionsForDevices
+  tag: permissions
+  kind: read
+  request: MessageGetUserPermissionsForDevicesRequest
+  response: MessageGetUserPermissionsForDevicesResponse
+  broadcasts: []
+  summary: Get User Permissions For Devices.
+  description: 'Request fields: DeviceIds (List<int>). Response: MessageGetUserPermissionsForDevicesResponse with
+    fields UserPermissionsForDevices (UserPermissionsForDevice[]).'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForDevices'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForDevicesRequest'
+  confidence: observed-in-code
+- id: getUserPermissionsForTrigger
+  tag: permissions
+  kind: read
+  request: MessageGetUserPermissionsForTriggerRequest
+  response: MessageGetUserPermissionsForTriggerResponse
+  broadcasts: []
+  summary: Get User Permissions For Trigger.
+  description: 'Request fields: TriggerId (long). Response: MessageGetUserPermissionsForTriggerResponse with fields
+    UserPermissionsForTrigger (UserPermissionsForTrigger[]).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForTrigger'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForTriggerRequest'
+  confidence: observed-in-code
+- id: getUserPermissionsForTriggers
+  tag: permissions
+  kind: read
+  request: MessageGetUserPermissionsForTriggersRequest
+  response: MessageGetUserPermissionsForTriggersResponse
+  broadcasts: []
+  summary: Get User Permissions For Triggers.
+  description: 'Request fields: TriggerIds (List<long>). Response: MessageGetUserPermissionsForTriggersResponse
+    with fields UserPermissionsForTriggers (UserPermissionsForTrigger[]).'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsForTriggers'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsForTriggersRequest'
+  confidence: observed-in-code
+- id: getUserPermissionsGeneral
+  tag: permissions
+  kind: read
+  request: MessageGetUserPermissionsGeneralRequest
+  response: MessageGetUserPermissionsGeneralResponse
+  broadcasts: []
+  summary: Get User Permissions General.
+  description: 'Request fields: none. Response: MessageGetUserPermissionsGeneralResponse with fields UserPermissionsGeneral
+    (UserPermissionsGeneral[]).'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetUserPermissionsGeneral'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetUserPermissionsGeneralRequest'
+  confidence: observed-in-code
+- id: updateDefaultGroupPermissionsForDeviceTypeGroups
+  tag: permissions
+  kind: write
+  request: MessageUpdateDefaultGroupPermissionsForDeviceTypeGroupsRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDefaultGroupPermissionsForDeviceTypeGroupsUpdatedBroadcast
+  summary: Update Default Group Permissions For Device Type Groups.
+  description: 'Request fields: GroupPermissions (Dictionary<int, Dictionary<int, int>>). Response: MessageGenericResponse.'
+  minProtocolVersion: 22
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDefaultGroupPermissionsForDevices'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDefaultGroupPermissionsForDeviceTypeGroupsRequest'
+  confidence: observed-in-code
+- id: updateDefaultGroupPermissionsForDevices
+  tag: permissions
+  kind: write
+  request: MessageUpdateDefaultGroupPermissionsForDevicesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDefaultGroupPermissionsForDevicesUpdatedBroadcast
+  summary: Update Default Group Permissions For Devices.
+  description: 'Request fields: DeviceTypeGroupId (int), GroupId (int), Permissions (UserPermissionForDevice). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDefaultGroupPermissionsForDevices'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDefaultGroupPermissionsForDevicesRequest'
+  confidence: observed-in-code
+- id: updateDefaultGroupPermissionsForTriggerTypes
+  tag: permissions
+  kind: write
+  request: MessageUpdateDefaultGroupPermissionsForTriggerTypesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDefaultGroupPermissionsForTriggerTypesUpdatedBroadcast
+  summary: Update Default Group Permissions For Trigger Types.
+  description: 'Request fields: GroupPermissions (Dictionary<int, Dictionary<int, int>>). Response: MessageGenericResponse.'
+  minProtocolVersion: 22
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDefaultGroupPermissionsForTriggers'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDefaultGroupPermissionsForTriggerTypesRequest'
+  confidence: observed-in-code
+- id: updateDefaultGroupPermissionsForTriggers
+  tag: permissions
+  kind: write
+  request: MessageUpdateDefaultGroupPermissionsForTriggersRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDefaultGroupPermissionsForTriggersUpdatedBroadcast
+  summary: Update Default Group Permissions For Triggers.
+  description: 'Request fields: TriggerTypeId (int), GroupId (int), Permissions (UserPermissionForTrigger). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDefaultGroupPermissionsForTriggers'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDefaultGroupPermissionsForTriggersRequest'
+  confidence: observed-in-code
+- id: updateGroupPermissionsForDashboard
+  tag: permissions
+  kind: write
+  request: MessageUpdateGroupPermissionsForDashboardRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsForDashboardUpdatedBroadcast
+  summary: Update Group Permissions For Dashboard.
+  description: 'Request fields: DashboardId (Guid), GroupId (int), Permissions (UserPermissionForDashboard). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateGroupPermissionsForDashboard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateGroupPermissionsForDashboardRequest'
+  confidence: observed-in-code
+- id: updateGroupPermissionsForDevice
+  tag: permissions
+  kind: write
+  request: MessageUpdateGroupPermissionsForDeviceRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsForDeviceUpdatedBroadcast
+  summary: Update Group Permissions For Device.
+  description: 'Request fields: DeviceId (int), GroupId (int), Permissions (UserPermissionForDevice). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateGroupPermissionsForDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateGroupPermissionsForDeviceRequest'
+  confidence: observed-in-code
+- id: updateGroupPermissionsForTrigger
+  tag: permissions
+  kind: write
+  request: MessageUpdateGroupPermissionsForTriggerRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsForTriggerUpdatedBroadcast
+  summary: Update Group Permissions For Trigger.
+  description: 'Request fields: TriggerId (long), GroupId (int), Permissions (UserPermissionForTrigger). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateGroupPermissionsForTrigger'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateGroupPermissionsForTriggerRequest'
+  confidence: observed-in-code
+- id: updateGroupPermissionsGeneral
+  tag: permissions
+  kind: write
+  request: MessageUpdateGroupPermissionsGeneralRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageGroupPermissionsGeneralUpdatedBroadcast
+  summary: Update Group Permissions General.
+  description: 'Request fields: GroupId (int), Permissions (UserPermissionGeneral). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateGroupPermissionsGeneral'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateGroupPermissionsGeneralRequest'
+  confidence: observed-in-code
+- id: updateMultipleDefaultGroupPermissionsForTriggers
+  tag: permissions
+  kind: write
+  request: MessageUpdateMultipleDefaultGroupPermissionsForTriggersRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageMultipleDefaultGroupPermissionsForTriggersUpdatedBroadcast
+  summary: Update Multiple Default Group Permissions For Triggers.
+  description: 'Request fields: Permissions (Dictionary<int, Dictionary<int, int>>). Response: MessageGenericResponse.'
+  minProtocolVersion: 14
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateMultipleDefaultGroupPermissionsForTriggersRequest'
+  confidence: inferred
+- id: updatePermissionsForDashboards
+  tag: permissions
+  kind: write
+  request: MessageUpdatePermissionsForDashboardsRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsForDashboardsUpdatedBroadcast
+  summary: Update Permissions For Dashboards.
+  description: 'Request fields: UserPermissions (Dictionary<Guid, int>), GroupPermissions (Dictionary<int, int>),
+    DashboardIds (List<Guid>). Response: MessageGenericResponse.'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdatePermissionsForDashboards'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdatePermissionsForDashboardsRequest'
+  confidence: observed-in-code
+- id: updatePermissionsForDevices
+  tag: permissions
+  kind: write
+  request: MessageUpdatePermissionsForDevicesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsForDevicesUpdatedBroadcast
+  summary: Update Permissions For Devices.
+  description: 'Request fields: UserPermissions (Dictionary<Guid, int>), GroupPermissions (Dictionary<int, int>),
+    DevicesIds (List<int>). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdatePermissionsForDevices'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdatePermissionsForDevicesRequest'
+  confidence: observed-in-code
+- id: updatePermissionsForSmartRules
+  tag: permissions
+  kind: write
+  request: MessageUpdatePermissionsForSmartRulesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsForTriggersUpdatedBroadcast
+  summary: Update Permissions For Smart Rules.
+  description: 'Request fields: UserPermissions (Dictionary<Guid, int>), GroupPermissions (Dictionary<int, int>),
+    SmartRuleIds (List<long>). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdatePermissionsForSmartRules'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdatePermissionsForSmartRulesRequest'
+  confidence: observed-in-code
+- id: updatePermissionsGeneral
+  tag: permissions
+  kind: write
+  request: MessageUpdatePermissionsGeneralRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessagePermissionsGeneralUpdatedBroadcast
+  summary: Update Permissions General.
+  description: 'Request fields: UserPermissions (Dictionary<Guid, int>), GroupPermissions (Dictionary<int, int>).
+    Response: MessageGenericResponse.'
+  minProtocolVersion: 21
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdatePermissionsGeneral'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdatePermissionsGeneralRequest'
+  confidence: observed-in-code
+- id: updateUserPermissionsForDashboard
+  tag: permissions
+  kind: write
+  request: MessageUpdateUserPermissionsForDashboardRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsForDashboardUpdatedBroadcast
+  summary: Update User Permissions For Dashboard.
+  description: 'Request fields: DashboardId (Guid), UserId (Guid), Permissions (UserPermissionForDashboard). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateUserPermissionsForDashboard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateUserPermissionsForDashboardRequest'
+  confidence: observed-in-code
+- id: updateUserPermissionsForDevice
+  tag: permissions
+  kind: write
+  request: MessageUpdateUserPermissionsForDeviceRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsForDeviceUpdatedBroadcast
+  summary: Update User Permissions For Device.
+  description: 'Request fields: DeviceId (int), UserId (Guid), Permissions (UserPermissionForDevice). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateUserPermissionsForDevice'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateUserPermissionsForDeviceRequest'
+  confidence: observed-in-code
+- id: updateUserPermissionsForTrigger
+  tag: permissions
+  kind: write
+  request: MessageUpdateUserPermissionsForTriggerRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsForTriggerUpdatedBroadcast
+  summary: Update User Permissions For Trigger.
+  description: 'Request fields: TriggerId (long), UserId (Guid), Permissions (UserPermissionForTrigger). Response:
+    MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateUserPermissionsForTrigger'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateUserPermissionsForTriggerRequest'
+  confidence: observed-in-code
+- id: updateUserPermissionsGeneral
+  tag: permissions
+  kind: write
+  request: MessageUpdateUserPermissionsGeneralRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUserPermissionsGeneralUpdatedBroadcast
+  summary: Update User Permissions General.
+  description: 'Request fields: UserId (Guid), Permissions (UserPermissionGeneral). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateUserPermissionsGeneral'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateUserPermissionsGeneralRequest'
+  confidence: observed-in-code
+- id: backupCore
+  tag: backup
+  kind: action
+  request: MessageBackupCoreRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Create a backup on the Core.
+  description: 'Request fields: none. Response: MessageGenericResponse.'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.BackupCore'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageBackupCoreRequest'
+  confidence: observed-in-code
+- id: backupDownload
+  tag: backup
+  kind: action
+  request: MessageBackupDownloadRequest
+  response: MessageBackupDownloadResponse
+  broadcasts: []
+  summary: Download one chunk of the Core backup file to the app (position, buffer size).
+  description: 'Request fields: Position (long), BufferSize (int). Response: MessageBackupDownloadResponse with
+    fields MD5 (string), TotalFileLength (long), Buffer (byte[]).'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.BackupDownload'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageBackupDownloadRequest'
+  confidence: observed-in-code
+- id: backupUpload
+  tag: backup
+  kind: action
+  request: MessageBackupUploadRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Upload one chunk of a backup file to the Core.
+  description: 'Request fields: Buffer (byte[]), Position (long). Response: MessageGenericResponse.'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.BackupUpload'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageBackupUploadRequest'
+  confidence: observed-in-code
+- id: restoreCore
+  tag: backup
+  kind: action
+  request: MessageRestoreCoreRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Start restoring the Core from the uploaded backup.
+  description: 'Request fields: none. Response: MessageGenericResponse.'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.RestoreCore'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageRestoreCoreRequest'
+  confidence: observed-in-code
+- id: getRestoreCoreResult
+  tag: backup
+  kind: read
+  request: MessageGetRestoreCoreResultRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Poll the result of the restore.
+  description: 'Request fields: none. Response: MessageGenericResponse.'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetRestoreCoreResult'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetRestoreCoreResultRequest'
+  confidence: observed-in-code
+- id: cloneCore
+  tag: backup
+  kind: action
+  request: MessageCloneCoreRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Start cloning configuration to this Core.
+  description: 'Request fields: none. Response: MessageGenericResponse.'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.CloneCore'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageCloneCoreRequest'
+  confidence: observed-in-code
+- id: getCloneCoreResult
+  tag: backup
+  kind: read
+  request: MessageGetCloneCoreResultRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Poll the result of the clone.
+  description: 'Request fields: none. Response: MessageGenericResponse.'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetCloneCoreResult'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetCloneCoreResultRequest'
+  confidence: observed-in-code
+- id: resetCore
+  tag: core
+  kind: action
+  request: MessageResetCoreRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Reset the Core to factory state. The app method takes an access token but does not put it in the message.
+  description: 'Request fields: none. Response: MessageGenericResponse.'
+  minProtocolVersion: 52
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ResetCore'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageResetCoreRequest'
+  confidence: observed-in-code
+- id: storeLocation
+  tag: core
+  kind: write
+  request: MessageStoreLocationRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Ask the Core to persist the location state (no fields).
+  description: 'Request fields: none. Response: MessageGenericResponse.'
+  minProtocolVersion: 24
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.StoreLocation'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageStoreLocationRequest'
+  confidence: observed-in-code
+- id: httpApiConfig
+  tag: core
+  kind: write
+  request: MessageHttpApiConfigRequest
+  response: MessageHttpApiConfigResponse
+  broadcasts: []
+  summary: Configure the HTTP API CCU (Core as HTTP client of third-party devices). Not the TapHome API.
+  description: 'Request fields: CcuId (int), ConfigJson (string). Response: MessageHttpApiConfigResponse with fields
+    CcuId (int), AddedDevices (GenericDevice[]), RemovedDevices (GenericDevice[]).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.PacketParserConfig'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageHttpApiConfigRequest'
+  confidence: observed-in-code
+- id: httpApiSendHttp
+  tag: core
+  kind: action
+  request: MessageHttpApiSendHttpRequest
+  response: MessageHttpApiSendHttpResponse
+  broadcasts: []
+  summary: Send a one-off HTTP request from the Core through the HTTP API CCU. Not the TapHome API.
+  description: 'Request fields: CcuId (int), SendHttpRequestParameters (string). Response: MessageHttpApiSendHttpResponse
+    with fields CcuId (int), RecievedHttpResponse (string).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.HttpApiSendHttpRequest'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageHttpApiSendHttpRequest'
+  confidence: observed-in-code
+- id: updateCore
+  tag: updates
+  kind: action
+  request: MessageUpdateCoreRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageUpdateProgressBroadcast
+  summary: Upload one chunk of a Core software package to the Core (chunked, MD5 checked).
+  description: 'Request fields: FileName (string), Position (int), TotalFileLength (int), Buffer (byte[]), CurrentVersionInfo
+    (string), EmbeddedVersionInfo (string), Md5Hash (byte[]), SessionId (Guid?). Response: MessageGenericResponse.'
+  minProtocolVersion: 4
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SendUpdateCorePackageChunk'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateCoreRequest'
+  confidence: observed-in-code
+- id: addDashboard
+  tag: dashboards
+  kind: write
+  request: MessageAddDashboardRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardUpdatedBroadcast
+  summary: Add Dashboard.
+  description: 'Request fields: DashboardId (Guid), ParentDashboardId (Guid?), Name (string), AccentColorId (int),
+    Version (int), DashboardTypeId (int), Content (byte[]), ToolbarImageId (int), IconId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddDashboard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageAddDashboardRequest'
+  confidence: observed-in-code
+- id: deleteDashboard
+  tag: dashboards
+  kind: write
+  request: MessageDeleteDashboardRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardDeletedBroadcast
+  summary: Delete Dashboard.
+  description: 'Request fields: DashboardId (Guid). Response: MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteDashboard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteDashboardRequest'
+  confidence: observed-in-code
+- id: updateDashboardContent
+  tag: dashboards
+  kind: write
+  request: MessageUpdateDashboardContentRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardContentUpdatedBroadcast
+  summary: Update Dashboard Content.
+  description: 'Request fields: DashboardId (Guid), Content (byte[]). Response: MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDashboardContent'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDashboardContentRequest'
+  confidence: observed-in-code
+- id: updateDashboardContents
+  tag: dashboards
+  kind: write
+  request: MessageUpdateDashboardContentsRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardContentUpdatedBroadcast
+  summary: Update Dashboard Contents.
+  description: 'Request fields: DashboardContents (Dictionary<Guid, byte[]>). Response: MessageGenericResponse.'
+  minProtocolVersion: 41
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDashboardContents'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDashboardContentsRequest'
+  confidence: observed-in-code
+- id: updateDashboardProperties
+  tag: dashboards
+  kind: write
+  request: MessageUpdateDashboardPropertiesRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardPropertiesUpdatedBroadcast
+  summary: Update Dashboard Properties.
+  description: 'Request fields: DashboardId (Guid), Properties (Dictionary<string, string>). Response: MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDashboardProperties'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDashboardPropertiesRequest'
+  confidence: observed-in-code
+- id: updateDashboardSet
+  tag: dashboards
+  kind: write
+  request: MessageUpdateDashboardSetRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageDashboardSetUpdatedBroadcast
+  summary: Update Dashboard Set.
+  description: 'Request fields: UserId (Guid), DashboardSet (List<Guid>), DashboardSetTypeId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDashboardSet'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateDashboardSetRequest'
+  confidence: observed-in-code
+- id: deleteDashboardSet
+  tag: dashboards
+  kind: write
+  request: MessageDeleteDashboardSetRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Delete Dashboard Set.
+  description: 'Request fields: UserId (Guid), DashboardSetTypeId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 16
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteDashboardSet'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteDashboardSetRequest'
+  confidence: observed-in-code
+- id: addAccessCard
+  tag: access
+  kind: write
+  request: MessageAddAccessCardRequest
+  response: MessageAddAccessCardResponse
+  broadcasts: []
+  summary: Add Access Card.
+  description: 'Request fields: ValidFromUtc (DateTime), ValidToUtc (DateTime), CardCodeHash (string), PinCodeHash
+    (string), Name (string). Response: MessageAddAccessCardResponse with fields AccessCard (AccessCardWithoutHash).'
+  minProtocolVersion: 50
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.AddAccessCard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageAddAccessCardRequest'
+  confidence: observed-in-code
+- id: addWeekPlanAndCard
+  tag: access
+  kind: write
+  request: MessageAddWeekPlanAndCardRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Add Week Plan And Card.
+  description: 'Request fields: WeekPlanAndCard (WeekPlansAndCards). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageAddWeekPlanAndCardRequest'
+  confidence: inferred
+- id: copyAccessCard
+  tag: access
+  kind: write
+  request: MessageCopyAccessCardRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Copy Access Card.
+  description: 'Request fields: FromCardId (int), ToCardId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 50
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.CopyAccessCard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageCopyAccessCardRequest'
+  confidence: observed-in-code
+- id: deleteAccessCard
+  tag: access
+  kind: write
+  request: MessageDeleteAccessCardRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Delete Access Card.
+  description: 'Request fields: CardId (int). Response: MessageGenericResponse.'
+  minProtocolVersion: 50
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteAccessCard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteAccessCardRequest'
+  confidence: observed-in-code
+- id: deleteWeekPlanAndCard
+  tag: access
+  kind: write
+  request: MessageDeleteWeekPlanAndCardRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Delete Week Plan And Card.
+  description: 'Request fields: WeekPlanAndCard (WeekPlansAndCards). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteWeekPlanAndCardRequest'
+  confidence: inferred
+- id: getAccessCards
+  tag: access
+  kind: read
+  request: MessageGetAccessCardsRequest
+  response: MessageGetAccessCardsResponse
+  broadcasts: []
+  summary: Get Access Cards.
+  description: 'Request fields: AccessCardIds (int[]). Response: MessageGetAccessCardsResponse with fields AccessCards
+    (AccessCardWithoutHash[]).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetAccessCards'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetAccessCardsRequest'
+  confidence: observed-in-code
+- id: getAccessLogs
+  tag: access
+  kind: read
+  request: MessageGetAccessLogsRequest
+  response: MessageGetAccessLogsResponse
+  broadcasts: []
+  summary: Get Access Logs.
+  description: 'Request fields: DeviceId (int), UserId (Guid?), FromUtc (DateTime), ToUtc (DateTime). Response:
+    MessageGetAccessLogsResponse with fields AccessLogs (AccessLog[]).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetAccessLogs'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetAccessLogsRequest'
+  confidence: observed-in-code
+- id: getWeekPlanDateRange
+  tag: access
+  kind: read
+  request: MessageGetWeekPlanDateRangeRequest
+  response: MessageGetWeekPlanDateRangeResponse
+  broadcasts: []
+  summary: Get Week Plan Date Range.
+  description: 'Request fields: WeekPlanIds (int[]). Response: MessageGetWeekPlanDateRangeResponse with fields WeekPlanDateRanges
+    (WeekPlanDateRange[]).'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetWeekPlanDateRanges'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetWeekPlanDateRangeRequest'
+  confidence: observed-in-code
+- id: identifyAccessCardMode
+  tag: access
+  kind: action
+  request: MessageIdentifyAccessCardModeRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Identify Access Card Mode.
+  description: 'Request fields: DeviceId (int), IdentifyMode (bool). Response: MessageGenericResponse.'
+  minProtocolVersion: 50
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SetIdentifyAccessCardMode'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageIdentifyAccessCardModeRequest'
+  confidence: observed-in-code
+- id: setAddAccessCardMode
+  tag: access
+  kind: action
+  request: MessageSetAddAccessCardModeRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Set Add Access Card Mode.
+  description: 'Request fields: DeviceId (int), SetAddCardMode (bool), ValidFromUtc (DateTime), ValidToUtc (DateTime),
+    Name (string). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SetAddAccessCardMode'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageSetAddAccessCardModeRequest'
+  confidence: observed-in-code
+- id: updateAccessCard
+  tag: access
+  kind: write
+  request: MessageUpdateAccessCardRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Update Access Card.
+  description: 'Request fields: AccessCard (AccessCardWithoutHash), PinCodeHash (string). Response: MessageGenericResponse.'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateAccessCard'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateAccessCardRequest'
+  confidence: observed-in-code
+- id: updateWeekPlanDateRange
+  tag: access
+  kind: write
+  request: MessageUpdateWeekPlanDateRangeRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Update Week Plan Date Range.
+  description: 'Request fields: AddWeekPlanDateRanges (WeekPlanDateRange[]), RemoveWeekPlanDateRanges (WeekPlanDateRange[]).
+    Response: MessageGenericResponse.'
+  minProtocolVersion: 53
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateWeekPlanDateRanges'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageUpdateWeekPlanDateRangeRequest'
+  confidence: observed-in-code
+- id: createUpdateDataExportProfile
+  tag: export
+  kind: write
+  request: MessageCreateUpdateDataExportProfileRequest
+  response: MessageCreateUpdateDataExportProfileResponse
+  broadcasts: []
+  summary: Create Update Data Export Profile.
+  description: 'Request fields: DataExportProfile (DataExportProfile), CreateMissingDeviceValueAggregations (bool).
+    Response: MessageCreateUpdateDataExportProfileResponse with fields CreatedAggregationsCount (int), EnabledHistoryCount
+    (int), RejectedAggregationsCount (int), UrlChange (string).'
+  minProtocolVersion: 89
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.UpdateDataExportProfile'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageCreateUpdateDataExportProfileRequest'
+  confidence: observed-in-code
+- id: deleteDataExportProfile
+  tag: export
+  kind: write
+  request: MessageDeleteDataExportProfileRequest
+  response: MessageGenericResponse
+  broadcasts: []
+  summary: Delete Data Export Profile.
+  description: 'Request fields: ProfileIds (List<Guid>). Response: MessageGenericResponse.'
+  minProtocolVersion: 89
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteDataExportProfiles'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteDataExportProfileRequest'
+  confidence: observed-in-code
+- id: executeNowDataExportProfile
+  tag: export
+  kind: action
+  request: MessageExecuteNowDataExportProfileRequest
+  response: MessageExecuteNowDataExportProfileResponse
+  broadcasts: []
+  summary: Execute Now Data Export Profile.
+  description: 'Request fields: Id (Guid), FromTimeLocal (DateTime?), ToTimeLocal (DateTime?), LanguageCode (string),
+    BufferSize (int), TriggerAutoExecOnly (bool). Response: MessageExecuteNowDataExportProfileResponse with fields
+    Id (Guid), SessionId (Guid?), FinalSize (int), Position (int), Buffer (byte[]), Md5Hash (byte[]).'
+  minProtocolVersion: 89
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.ExecuteDataExportProfile'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageExecuteNowDataExportProfileRequest'
+  confidence: observed-in-code
+- id: getDataExportProfileResultDataChunk
+  tag: export
+  kind: read
+  request: MessageGetDataExportProfileResultDataChunkRequest
+  response: MessageGetDataExportProfileResultDataChunkResponse
+  broadcasts: []
+  summary: Get Data Export Profile Result Data Chunk.
+  description: 'Request fields: Id (Guid), SessionId (Guid), Position (int), BufferSize (int). Response: MessageGetDataExportProfileResultDataChunkResponse
+    with fields Id (Guid), SessionId (Guid), FinalSize (int), Position (int), Buffer (byte[]), Md5Hash (byte[]).'
+  minProtocolVersion: 89
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDataExportProfileResultDataChunk'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDataExportProfileResultDataChunkRequest'
+  confidence: observed-in-code
+- id: getDataExportProfiles
+  tag: export
+  kind: read
+  request: MessageGetDataExportProfilesRequest
+  response: MessageGetDataExportProfilesResponse
+  broadcasts: []
+  summary: Get Data Export Profiles.
+  description: 'Request fields: ProfileIds (List<Guid>). Response: MessageGetDataExportProfilesResponse with fields
+    ProfileList (List<DataExportProfile>).'
+  minProtocolVersion: 89
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetDataExportProfiles'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetDataExportProfilesRequest'
+  confidence: observed-in-code
+- id: getStoredDataExportProfileResult
+  tag: export
+  kind: read
+  request: MessageGetStoredDataExportProfileResultRequest
+  response: MessageGetStoredDataExportProfileResultResponse
+  broadcasts: []
+  summary: Get Stored Data Export Profile Result.
+  description: 'Request fields: Id (Guid), BufferSize (int). Response: MessageGetStoredDataExportProfileResultResponse
+    with fields Id (Guid), SessionId (Guid?), FinalSize (int), Position (int), Buffer (byte[]), Md5Hash (byte[]).'
+  minProtocolVersion: 89
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetStoredDataExportProfileResult'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetStoredDataExportProfileResultRequest'
+  confidence: observed-in-code
+- id: getMediaList
+  tag: media
+  kind: read
+  request: MessageGetMediaListRequest
+  response: MessageGetMediaListResponse
+  broadcasts: []
+  summary: Get Media List.
+  description: 'Request fields: none. Response: MessageGetMediaListResponse with fields MediaIds (List<Guid>), TotalSpace
+    (int), UsedSpace (int).'
+  minProtocolVersion: 87
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.GetAllMediaIds'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageGetMediaListRequest'
+  confidence: observed-in-code
+- id: deleteMedia
+  tag: media
+  kind: write
+  request: MessageDeleteMediaRequest
+  response: MessageGenericResponse
+  broadcasts:
+  - MessageMediaDeletedBroadcast
+  summary: Delete Media.
+  description: 'Request fields: MediaIds (List<Guid>). Response: MessageGenericResponse.'
+  minProtocolVersion: 88
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.DeleteMedia'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageDeleteMediaRequest'
+  confidence: observed-in-code
+- id: sIPDoorbellConfig
+  tag: media
+  kind: write
+  request: MessageSIPDoorbellConfigRequest
+  response: MessageSIPDoorbellConfigResponse
+  broadcasts: []
+  summary: SIPDoorbell Config.
+  description: 'Request fields: CcuId (int), ConfigJson (string). Response: MessageSIPDoorbellConfigResponse with
+    fields CcuId (int), AddedDevices (GenericDevice[]), RemovedDevices (GenericDevice[]).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SIPDoorbellConfig'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageSIPDoorbellConfigRequest'
+  confidence: observed-in-code
+- id: sIPDoorbellDeviceInfo
+  tag: media
+  kind: write
+  request: MessageSIPDoorbellDeviceInfoRequest
+  response: MessageSIPDoorbellDeviceInfoResponse
+  broadcasts: []
+  summary: SIPDoorbell Device Info.
+  description: 'Request fields: CcuId (int), DeviceId (int). Response: MessageSIPDoorbellDeviceInfoResponse with
+    fields CcuId (int), ConfigJson (string).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SIPDoorbellDeviceInfo'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageSIPDoorbellDeviceInfoRequest'
+  confidence: observed-in-code
+- id: sIPDoorbellPTZPresets
+  tag: media
+  kind: read
+  request: MessageSIPDoorbellPTZPresetsRequest
+  response: MessageSIPDoorbellPTZPresetsResponse
+  broadcasts: []
+  summary: SIPDoorbell PTZPresets.
+  description: 'Request fields: CcuId (int), DeviceId (int), Protocol (string), Path (string). Response: MessageSIPDoorbellPTZPresetsResponse
+    with fields CcuId (int), ConfigJson (string).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageSIPDoorbellPTZPresetsRequest'
+  confidence: inferred
+- id: sIPDoorbellScan
+  tag: media
+  kind: read
+  request: MessageSIPDoorbellScanRequest
+  response: MessageSIPDoorbellScanResponse
+  broadcasts: []
+  summary: SIPDoorbell Scan.
+  description: 'Request fields: CcuId (int), Model (int). Response: MessageSIPDoorbellScanResponse with fields CcuId
+    (int), ConfigJson (string).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SIPDoorbellScan'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageSIPDoorbellScanRequest'
+  confidence: observed-in-code
+- id: sIPDoorbellStreams
+  tag: media
+  kind: write
+  request: MessageSIPDoorbellStreamsRequest
+  response: MessageSIPDoorbellStreamsResponse
+  broadcasts: []
+  summary: SIPDoorbell Streams.
+  description: 'Request fields: CcuId (int), DeviceId (int), Protocol (string). Response: MessageSIPDoorbellStreamsResponse
+    with fields CcuId (int), ConfigJson (string).'
+  minProtocolVersion: 0
+  evidence:
+  - 'TapHome.Android: Com.TapHome.Communication.ClientCommunicationManager.SIPDoorbellStreams'
+  - 'TapHome.Core.Lib.Model: TapHome.Core.Lib.Communication.Messages.MessageSIPDoorbellStreamsRequest'
+  confidence: observed-in-code
