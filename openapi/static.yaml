@@ -237,8 +237,58 @@ x-taphome:
         '6': AppTooOld
         '7': NotReady
         '8': WrongLocationId
+      TriggerType:
+        '0': None
+        '1': AlarmStateTrigger
+        '2': AlarmTrigger
+        '3': BlindsAccordingToSunTrigger
+        '4': BoilerPIDTrigger
+        '5': CountdownTimerTrigger
+        '6': DelayedAirVentTrigger
+        '7': DeviceStatusNotificationTrigger
+        '8': DisableBoilerTrigger
+        '9': EmergencyAlarmTrigger
+        '10': EquithermicRegulationTrigger
+        '11': EvaluationTrigger
+        '12': FormulaTrigger
+        '13': HysteresisControlTrigger
+        '14': KeepDefaultValuesTrigger
+        '15': LightingTimerTrigger
+        '16': LightSceneSequenceTrigger
+        '17': LimitFloorTemperatureTrigger
+        '18': LinkTrigger
+        '19': MultiValueSwitchTrigger
+        '20': OnePushButtonBlindControlTrigger
+        '21': OpenBlindsOnSensorTrigger
+        '22': PresenceSimulationTrigger
+        '23': ProtectBlindsFromWindTrigger
+        '24': ProtectFromOverheatTrigger
+        '25': PushButtonBlindControlTrigger
+        '26': PushButtonDimmingTrigger
+        '27': PushButtonTrigger
+        '28': ReduceHeatingTrigger
+        '29': SensorNotificationTrigger
+        '30': SimpleAlarmTrigger
+        '31': SunEventTrigger
+        '32': SwitchTrigger
+        '33': TemperaturePID2Trigger
+        '34': TimeoutTrigger
+        '35': TimerTrigger
+        '36': WatchdogTrigger
+        '37': WeekScheduleTrigger
+        '38': MultiValueSwitchLightSceneSequenceTrigger
+        '39': LightingTimerTrigger2
+        '40': DailyScheduleTrigger
+        '41': SequencerTrigger
+        '42': ProtectBlindsFromMildWindTrigger
+        '43': AccessTrigger
+        '44': DoorBellTrigger
+        '45': ScriptTrigger
+        '10000': ProtectBlindsFromStrongWindSafetyTrigger
+        '10001': LimitTemperatureSafetyTrigger
       note: These enums are not in the schema catalog. The matching properties (LoginResultId, ReconnectResultId,
-        ResponseFlagsId, ErrorCode) are plain integers.
+        ResponseFlagsId, ErrorCode, TriggerModel.TriggerTypeId) are plain integers. TriggerType is
+        TapHome.Core.Lib.Model.IFTTT.TriggerType.
     scalars:
       integers: varint. Negative int32 is sign-extended to 10 bytes. A zero value is not written.
       bool: varint 0 or 1, false is not written

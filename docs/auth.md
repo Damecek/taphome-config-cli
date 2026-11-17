@@ -108,7 +108,7 @@ The Core stores and compares a hash, never the plain password, and the client se
 
 The app calls the function with an iteration count of 2, which is why SHA-512 runs twice. The same function hashes the new password in `MessageSetNewPasswordRequest`.
 
-The salt is one constant compiled into the app. It is the same for every user and every Core. This repository does not contain it. A client must take it from the app binary, class `TapHome.Core.Lib.Password` in the assembly `TapHome.Core.Lib.Common`, after the app has been extracted and decompiled (see `docs/reverse-engineering.md`). The tooling in `scripts/probe` reads it from the environment variable `TAPHOME_PASSWORD_SALT`, or from the git-ignored file `work/secrets/salt.txt`.
+The salt is one constant compiled into the app. It is the same for every user and every Core. The constant is identical in the two app versions that were checked, Official 2025.2.32375 and Next 2026.1.41842, so a client sets it once and does not track app releases. This repository does not contain it. A client must take it from the app binary, class `TapHome.Core.Lib.Password` in the assembly `TapHome.Core.Lib.Common`, after the app has been extracted and decompiled (see `docs/reverse-engineering.md`). The tooling in `scripts/probe` reads it from the environment variable `TAPHOME_PASSWORD_SALT`, or from the git-ignored file `work/secrets/salt.txt`.
 
 A client in Python computes the value like this.
 

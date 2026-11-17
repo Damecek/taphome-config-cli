@@ -12528,6 +12528,39 @@ components:
       - type: object
       x-proto-include-tag: 103
       x-proto-included-by: ValueLogTypeConversionBase
+    DeviceActionParameterType:
+      type: integer
+      enum:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
+      x-enum-varnames:
+      - None
+      - Enabled
+      - Value
+      - MinValue
+      - MaxValue
+      - RotationEnabled
+      - TimeMs
+      - ClickKind
+      - PreciseAngle
+      - IgnoreBorders
+      - ResolvedValue
+      - OnlyOnValues
+      - SendToHw
+      - FadeTimeMs
+      x-proto-wire: varint
     DeviceActionParameters:
       allOf:
       - $ref: '#/components/schemas/ActionParametersBaseFields'
@@ -15172,6 +15205,7 @@ components:
           FrequencyErrorTime:
             type: integer
             format: int64
+            x-proto-clr-type: uint
             x-proto-tag: 6
             x-proto-wire: varint
       x-proto-include-tag: 351
@@ -16807,6 +16841,7 @@ components:
           ResponseFlagsId:
             type: integer
             format: int32
+            x-proto-clr-type: short
             x-proto-tag: 1
             x-proto-wire: varint
           ErrorMessage:
@@ -17612,6 +17647,7 @@ components:
           ProtocolVersion:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 3
             x-proto-wire: varint
           ArchitectureTypeId:
@@ -20418,16 +20454,19 @@ components:
           CalibrationState:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 2
             x-proto-wire: varint
           StartTimeUp5ms:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 3
             x-proto-wire: varint
           StartTimeDown5ms:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 4
             x-proto-wire: varint
           PositionStepUpS:
@@ -20453,51 +20492,61 @@ components:
           CountStepsUp:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 9
             x-proto-wire: varint
           CountStepsDown:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 10
             x-proto-wire: varint
           MaxCurrentUp:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 11
             x-proto-wire: varint
           MaxCurrentDown:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 12
             x-proto-wire: varint
           StopCurrentUp:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 13
             x-proto-wire: varint
           StopCurrentDown:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 14
             x-proto-wire: varint
           StartCurrentUp:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 15
             x-proto-wire: varint
           StartCurrentDown:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 16
             x-proto-wire: varint
           AverageCurrentUp:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 17
             x-proto-wire: varint
           AverageCurrentDown:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 18
             x-proto-wire: varint
       x-proto-include-tag: 396
@@ -21967,6 +22016,7 @@ components:
           SlaveId:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 4
             x-proto-wire: varint
       x-proto-include-tag: 100
@@ -21985,11 +22035,13 @@ components:
         RegisterIndex:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 3
           x-proto-wire: varint
         RegistersCount:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 4
           x-proto-wire: varint
         Values:
@@ -21997,6 +22049,7 @@ components:
           items:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
           x-proto-tag: 5
           x-proto-wire: varint
         ExceptionMessage:
@@ -22016,6 +22069,7 @@ components:
         Index:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 2
           x-proto-wire: varint
         LastSuccessfulReadTransaction:
@@ -22029,6 +22083,7 @@ components:
         LastReadValue:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 5
           x-proto-wire: varint
         LastSuccessfulWriteTransaction:
@@ -22042,6 +22097,7 @@ components:
         ValueToWrite:
           type: integer
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 8
           x-proto-wire: varint
         LastUnsuccessfulWriteValue:
@@ -22049,6 +22105,7 @@ components:
           - integer
           - 'null'
           format: int32
+          x-proto-clr-type: ushort
           x-proto-tag: 9
           x-proto-wire: varint
     ModbusRegisterType:
@@ -22089,16 +22146,19 @@ components:
           RegisterIndex:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 4
             x-proto-wire: varint
           FromSlaveId:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 5
             x-proto-wire: varint
           ToSlaveId:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 6
             x-proto-wire: varint
       x-proto-include-tag: 101
@@ -22114,6 +22174,7 @@ components:
               $ref: '#/components/schemas/ModbusManualTransaction'
             x-proto-map:
               key: int32
+              clr-key: byte
             x-proto-tag: 1
             x-proto-wire: length-delimited
       x-proto-include-tag: 102
@@ -22640,11 +22701,13 @@ components:
             items:
               type: integer
               format: int32
+              x-proto-clr-type: ushort
             x-proto-tag: 2
             x-proto-wire: varint
           PirThreshold:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 3
             x-proto-wire: varint
       x-proto-include-tag: 112
@@ -22937,6 +23000,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: char
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 115
@@ -23009,6 +23073,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: short
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 112
@@ -23021,6 +23086,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: sbyte
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 114
@@ -23056,6 +23122,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: ushort
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 108
@@ -23068,6 +23135,7 @@ components:
           GenericValue:
             type: integer
             format: int64
+            x-proto-clr-type: uint
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 109
@@ -23080,6 +23148,7 @@ components:
           GenericValue:
             type: integer
             format: int32
+            x-proto-clr-type: byte
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 113
@@ -23092,6 +23161,7 @@ components:
           GenericValue:
             type: integer
             format: int64
+            x-proto-clr-type: ulong
             x-proto-tag: 1
             x-proto-wire: varint
       x-proto-include-tag: 110
@@ -25595,11 +25665,13 @@ components:
         Crc32:
           type: integer
           format: int64
+          x-proto-clr-type: uint
           x-proto-tag: 2
           x-proto-wire: varint
         ImageIndex:
           type: integer
           format: int32
+          x-proto-clr-type: short
           x-proto-tag: 3
           x-proto-wire: varint
     ZC3ImageUploadTaskRequestParameters:
@@ -25755,8 +25827,57 @@ x-taphome:
         '6': AppTooOld
         '7': NotReady
         '8': WrongLocationId
+      TriggerType:
+        '0': None
+        '1': AlarmStateTrigger
+        '2': AlarmTrigger
+        '3': BlindsAccordingToSunTrigger
+        '4': BoilerPIDTrigger
+        '5': CountdownTimerTrigger
+        '6': DelayedAirVentTrigger
+        '7': DeviceStatusNotificationTrigger
+        '8': DisableBoilerTrigger
+        '9': EmergencyAlarmTrigger
+        '10': EquithermicRegulationTrigger
+        '11': EvaluationTrigger
+        '12': FormulaTrigger
+        '13': HysteresisControlTrigger
+        '14': KeepDefaultValuesTrigger
+        '15': LightingTimerTrigger
+        '16': LightSceneSequenceTrigger
+        '17': LimitFloorTemperatureTrigger
+        '18': LinkTrigger
+        '19': MultiValueSwitchTrigger
+        '20': OnePushButtonBlindControlTrigger
+        '21': OpenBlindsOnSensorTrigger
+        '22': PresenceSimulationTrigger
+        '23': ProtectBlindsFromWindTrigger
+        '24': ProtectFromOverheatTrigger
+        '25': PushButtonBlindControlTrigger
+        '26': PushButtonDimmingTrigger
+        '27': PushButtonTrigger
+        '28': ReduceHeatingTrigger
+        '29': SensorNotificationTrigger
+        '30': SimpleAlarmTrigger
+        '31': SunEventTrigger
+        '32': SwitchTrigger
+        '33': TemperaturePID2Trigger
+        '34': TimeoutTrigger
+        '35': TimerTrigger
+        '36': WatchdogTrigger
+        '37': WeekScheduleTrigger
+        '38': MultiValueSwitchLightSceneSequenceTrigger
+        '39': LightingTimerTrigger2
+        '40': DailyScheduleTrigger
+        '41': SequencerTrigger
+        '42': ProtectBlindsFromMildWindTrigger
+        '43': AccessTrigger
+        '44': DoorBellTrigger
+        '45': ScriptTrigger
+        '10000': ProtectBlindsFromStrongWindSafetyTrigger
+        '10001': LimitTemperatureSafetyTrigger
       note: These enums are not in the schema catalog. The matching properties (LoginResultId, ReconnectResultId,
-        ResponseFlagsId, ErrorCode) are plain integers.
+        ResponseFlagsId, ErrorCode, TriggerModel.TriggerTypeId) are plain integers. TriggerType is TapHome.Core.Lib.Model.IFTTT.TriggerType.
     scalars:
       integers: varint. Negative int32 is sign-extended to 10 bytes. A zero value is not written.
       bool: varint 0 or 1, false is not written
