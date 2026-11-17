@@ -59,6 +59,14 @@ class CodecTests(unittest.TestCase):
         back = codec.decode("AlexaResponse", raw)
         self.assertEqual((back["$type"], back["Message"], back["DeviceId"]), ("AlexaSetValuesResponse", "m", 4))
 
+    def test_member_declared_as_derived_type_starts_at_root(self):
+        # GenericDevice derives from DeviceBase (include 100): the wire holds DeviceBase fields at the top
+        # level and the GenericDevice fields nested under tag 100, as seen on a live Core.
+        wire = codec.encode("GenericDevice", {"CcuId": 3, "Name": "x"})
+        self.assertEqual(wire, bytes.fromhex("a206020803") + b"\x12\x01x")
+        back = codec.decode("GenericDevice", wire)
+        self.assertEqual((back["$type"], back["CcuId"], back["Name"]), ("GenericDevice", 3, "x"))
+
     def test_unknown_fields_preserved(self):
         raw = codec.encode_message("MessageGetBasicCorePropertiesRequest", {}, 5) + H("c80101")  # tag 25 varint 1
         d = codec.decode_message(raw)

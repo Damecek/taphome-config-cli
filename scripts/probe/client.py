@@ -79,8 +79,9 @@ async def login(host: str, location_id: str, user: str, password_hash: str, raw:
 class Session:
     """Main /Core connection: reconnect handshake, request/response matching, acks, broadcasts."""
 
-    def __init__(self, host: str, location_id: str, user: str, session_id: str):
+    def __init__(self, host: str, location_id: str, user: str, session_id: str, db_hash: str = None):
         self.host, self.location_id, self.user, self.session_id = host, location_id, user, session_id
+        self.db_hash = db_hash
         self.reconnect: dict = {}
         self.broadcasts: list = []      # decoded broadcast messages, in arrival order
         self.unmatched: list = []       # responses nobody waited for
@@ -96,6 +97,8 @@ class Session:
         self._tasks = [asyncio.ensure_future(self._reader()), asyncio.ensure_future(self._acker())]
         fields = {"LocationId": self.location_id, "Login": self.user, "SessionId": self.session_id,
                   "IsLocalAccount": True, "ServerClientDeviceId": 0, **_identity()}
+        if self.db_hash:
+            fields["DbHash"] = self.db_hash
         self.reconnect = await self.request("MessageReconnectRequest", fields, 20)
         self._protocol = self.reconnect.get("CurrentProtocolVersion", 0)
         return self

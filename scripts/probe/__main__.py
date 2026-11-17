@@ -140,6 +140,11 @@ async def open_session(cfg) -> client.Session:
         _secret_values.add(st["session_id"])
         s = client.Session(cfg["host"], st["location_id"], st["user"], st["session_id"])
         await s.__aenter__()
+        if s.reconnect.get("ReconnectResultId") == 4 and s.reconnect.get("DbHash"):
+            # FaultyStorageClient: our cached DbHash is stale; the Core sends the current one, retry with it
+            await s.__aexit__(None, None, None)
+            s = client.Session(cfg["host"], st["location_id"], st["user"], st["session_id"], s.reconnect["DbHash"])
+            await s.__aenter__()
         if s.reconnect.get("ReconnectResultId") == 1:
             return s
         await s.__aexit__(None, None, None)

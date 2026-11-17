@@ -293,12 +293,13 @@ class Codec:
     def encode(self, type_name: str, d: dict) -> bytes:
         concrete = d.get("$type", type_name)
         self.resolve(concrete)
-        chain = [concrete]  # concrete first, then up to type_name
-        while chain[-1].split(".")[-1] != type_name.split(".")[-1]:
-            p = self.parent.get(chain[-1])
-            if not p:
-                raise CodecError("%s is not a subtype of %s" % (concrete, type_name))
-            chain.append(p[0])
+        chain = [concrete]  # concrete first, then up to the root base class
+        # protobuf-net always serializes from the root of the hierarchy, even when a member is declared as a
+        # derived type (e.g. List<GenericDevice> is written as DeviceBase{100: GenericDevice fields}, base fields)
+        while chain[-1] in self.parent:
+            chain.append(self.parent[chain[-1]][0])
+        if type_name.split(".")[-1] not in chain:
+            raise CodecError("%s is not a subtype of %s" % (concrete, type_name))
         body = b""
         for level, tn in enumerate(chain):
             own = self._enc_members(tn, d)
@@ -391,15 +392,17 @@ class Codec:
         return ld(tag, self.encode(ts, v))
 
     # ------------------------------------------------------------ decode
-    def decode(self, type_name: str, data: bytes) -> dict:
+    def decode(self, type_name: str, data: bytes, _from_root: bool = True) -> dict:
         tdef = self.resolve(type_name)
+        while _from_root and tdef["name"] in self.parent:  # the wire starts at the root base class
+            tdef = self.resolve(self.parent[tdef["name"]][0])
         out = {"$type": tdef["name"]}
         specs = {s[0]: s for s in self.member_specs(tdef)}
         incs = {i["tag"]: i["type"] for i in tdef.get("includes") or []}
         unknown = []
         for tag, wt, v, raw in read_fields(data):
             if tag in incs and wt == 2:
-                sub = self.decode(incs[tag], v)
+                sub = self.decode(incs[tag], v, False)
                 for k2, val in sub.items():
                     if k2 == "$unknown":
                         unknown += val
@@ -407,7 +410,12 @@ class Codec:
                         out[k2] = val  # concrete "$type" wins; subtype fields merge
             elif tag in specs:
                 _, name, ts, _, _, mwt, zz = specs[tag]
-                self._dec_field(out, name, ts, wt, v, mwt, zz)
+                try:
+                    self._dec_field(out, name, ts, wt, v, mwt, zz)
+                except (CodecError, ValueError, IndexError, TypeError, struct.error) as e:
+                    # keep going: one undecodable field must not hide the rest of a live message
+                    out.setdefault("$errors", []).append(
+                        {"field": name, "type": ts, "in": tdef["name"], "wt": wt, "error": str(e), "hex": raw.hex()})
             else:
                 unknown.append({"tag": tag, "wt": wt, "hex": raw.hex(), "in": tdef["name"]})
         if unknown:
