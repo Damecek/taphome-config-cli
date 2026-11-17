@@ -1,0 +1,28 @@
+[package]
+name = "taphome-config-cli"
+version = "0.1.0"
+edition = "2021"
+description = "Command line tool that lets AI agents configure a TapHome Core over its WebSocket protobuf protocol"
+publish = false
+
+[lib]
+name = "taphome_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "taphome"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+tokio = { version = "1", features = ["rt", "net", "time", "macros", "sync"] }
+tokio-tungstenite = "0.30"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
