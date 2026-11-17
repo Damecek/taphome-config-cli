@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+roxmltree = "0.21.2"
 serde = { version = "1", features = ["derive"] }
 # preserve_order: decoded maps keep wire order, so a re-encode reproduces the original bytes.
 # float_roundtrip: parse doubles exactly, so a decoded double re-encodes to the same 8 bytes.
