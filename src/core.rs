@@ -237,6 +237,7 @@ async fn cloud_login(ctx: &Ctx) -> Result<LoginOutcome> {
         password,
         &device_id,
         config.location.as_deref(),
+        ctx.timeout(crate::cloud::HTTP_TIMEOUT),
     )?;
     ctx.add_secret(&cloud.location.authorization_token);
     let hash = ctx.salt.hash(&cloud.location.authorization_token)?;

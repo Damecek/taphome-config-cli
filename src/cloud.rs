@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 use std::time::Duration;
 
 pub const DEFAULT_API: &str = "https://cloudapi.taphome.com/api/user/";
-const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
+/// The app's limit for cloud calls. `--timeout` replaces it.
+pub const HTTP_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// One location from `login2`. `authorization_token` is the secret the Core login hashes.
 #[derive(Clone, PartialEq)]
@@ -31,9 +32,9 @@ pub struct CloudLogin {
     pub tunnels: Vec<String>,
 }
 
-fn agent() -> ureq::Agent {
+fn agent(timeout: Duration) -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(HTTP_TIMEOUT))
+        .timeout_global(Some(timeout))
         .http_status_as_error(false)
         .build()
         .into()
@@ -41,11 +42,12 @@ fn agent() -> ureq::Agent {
 
 /// `(status, body)`. A transport failure is `connection_failed`.
 fn call(
+    timeout: Duration,
     request: impl FnOnce(
         &ureq::Agent,
     ) -> std::result::Result<ureq::http::Response<ureq::Body>, ureq::Error>,
 ) -> Result<(u16, Value)> {
-    let mut response = request(&agent()).map_err(|e| {
+    let mut response = request(&agent(timeout)).map_err(|e| {
         CliError::new(
             "connection_failed",
             format!("cannot reach the TapHome cloud: {e}"),
@@ -80,10 +82,11 @@ pub fn login(
     password: &str,
     device_id: &str,
     wanted: Option<&str>,
+    timeout: Duration,
 ) -> Result<CloudLogin> {
     let body = json!({"deviceId": device_id, "platform": PLATFORM, "softwareVersion": SOFTWARE_VERSION,
                       "email": email, "password": password, "languageCode": "en", "deviceName": DEVICE_NAME});
-    let (status, reply) = call(|a| {
+    let (status, reply) = call(timeout, |a| {
         a.post(format!("{api}login2"))
             .header("Content-Type", "application/json")
             .send(body.to_string())
@@ -109,7 +112,7 @@ pub fn login(
         .cloned()
         .unwrap_or_default();
     let location = pick_location(&locations, wanted)?;
-    let (status, reply) = call(|a| a.get(format!("{api}tunnelendpoints3")).call())?;
+    let (status, reply) = call(timeout, |a| a.get(format!("{api}tunnelendpoints3")).call())?;
     // The Core login travels in the tunnel: never accept a plain ws:// relay from the real cloud.
     // A plain http:// API (TAPHOME_CLOUD_API in tests) may name a plain ws:// tunnel.
     let plain_ok = api.starts_with("http://");
