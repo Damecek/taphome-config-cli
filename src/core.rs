@@ -99,10 +99,14 @@ impl Ctx {
     pub fn new(env: Env, global: Global, built_in_salt: &[u8]) -> Result<Ctx> {
         let config = Config::load(&env)?;
         let salt = Salt::resolve(&env, built_in_salt);
-        let secrets = [config.password.clone(), salt.as_text().map(str::to_string)]
-            .into_iter()
-            .flatten()
-            .collect();
+        let secrets = [
+            config.password.clone(),
+            config.cloud_password.clone(),
+            salt.as_text().map(str::to_string),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
         Ok(Ctx {
             env,
             config,
@@ -187,8 +191,11 @@ pub struct LoginOutcome {
     pub location: Value,
 }
 
-/// Identify, login, store the session. Needs host, user and password.
+/// Identify, login, store the session. Needs host, user and password, or the TapHome account in cloud mode.
 pub async fn login(ctx: &Ctx) -> Result<LoginOutcome> {
+    if ctx.config.is_cloud() {
+        return cloud_login(ctx).await;
+    }
     let (host, user, password) = match (&ctx.config.host, &ctx.config.user, &ctx.config.password) {
         (Some(h), Some(u), Some(p)) => (h.clone(), u.to_lowercase(), p.clone()),
         (h, u, p) => {
@@ -211,8 +218,57 @@ pub async fn login(ctx: &Ctx) -> Result<LoginOutcome> {
         .as_str()
         .unwrap_or_default()
         .to_string();
+    let session = core_login(ctx, host, location_id, user, &hash).await?;
+    config::save_session(&ctx.env, &session)?;
+    Ok(LoginOutcome { session, location })
+}
+
+/// TapHome account: `login2` in the cloud for the location's authorization token, then the Core login
+/// through the tunnel with that token in place of the password.
+async fn cloud_login(ctx: &Ctx) -> Result<LoginOutcome> {
+    let config = &ctx.config;
+    let (Some(email), Some(password)) = (&config.cloud_email, &config.cloud_password) else {
+        return Err(missing_config(&["TAPHOME_CLOUD_PASSWORD"]));
+    };
     let device_id = config::device_id(&ctx.env)?;
-    let response = client::login(&host, &location_id, &user, &hash, &device_id, &timeouts).await?;
+    let cloud = crate::cloud::login(
+        &config.cloud_api,
+        email,
+        password,
+        &device_id,
+        config.location.as_deref(),
+        ctx.timeout(crate::cloud::HTTP_TIMEOUT),
+    )?;
+    ctx.add_secret(&cloud.location.authorization_token);
+    let hash = ctx.salt.hash(&cloud.location.authorization_token)?;
+    ctx.add_secret(&hash);
+    // shortcut: always the first tunnel, the app picks one at random; upgrade if a relay goes down
+    let tunnel = cloud.tunnels[0].clone();
+    let mut session = core_login(
+        ctx,
+        tunnel,
+        cloud.location.id.clone(),
+        email.to_lowercase(),
+        &hash,
+    )
+    .await?;
+    session.location_name = Some(cloud.location.name.clone());
+    config::save_session(&ctx.env, &session)?;
+    let location = json!({"LocationId": cloud.location.id, "Name": cloud.location.name});
+    Ok(LoginOutcome { session, location })
+}
+
+/// `MessageLoginRequest` on a throwaway socket. The caller stores the session.
+async fn core_login(
+    ctx: &Ctx,
+    host: String,
+    location_id: String,
+    user: String,
+    hash: &str,
+) -> Result<StoredSession> {
+    let timeouts = ctx.options().timeouts;
+    let device_id = config::device_id(&ctx.env)?;
+    let response = client::login(&host, &location_id, &user, hash, &device_id, &timeouts).await?;
     let result = response["LoginResultId"].as_i64().unwrap_or(0);
     let response_location = response["LocationInfo"]["LocationId"]
         .as_str()
@@ -249,9 +305,9 @@ pub async fn login(ctx: &Ctx) -> Result<LoginOutcome> {
         user,
         session_id,
         db_hash: None,
+        location_name: None,
     };
-    config::save_session(&ctx.env, &session)?;
-    Ok(LoginOutcome { session, location })
+    Ok(session)
 }
 
 pub enum Reconnect {
@@ -266,7 +322,11 @@ pub async fn reconnect(ctx: &Ctx, stored: &StoredSession) -> Result<Reconnect> {
     ctx.add_secret(&stored.session_id);
     let device_id = config::device_id(&ctx.env)?;
     let mut db_hash = stored.db_hash.clone();
-    for attempt in 0..2 {
+    // The relay answers CoreOffline for a few seconds after an earlier tunnel socket of the same
+    // session closed (seen live: 3 to 10 s), so this waits instead of failing at once.
+    let mut offline_waits = [1u64, 2, 4, 8, 8].into_iter();
+    let mut attempt = 0;
+    while attempt < 2 {
         let session = Session::connect(
             &stored.host,
             &stored.location_id,
@@ -277,6 +337,28 @@ pub async fn reconnect(ctx: &Ctx, stored: &StoredSession) -> Result<Reconnect> {
             ctx.options(),
         )
         .await?;
+        if session.reconnect["$type"] == "MessageGenericResponse" {
+            let refusal = session.reconnect.clone();
+            session.close().await;
+            if refusal["ErrorCode"] != json!(21) {
+                check_generic_response(&refusal)?;
+                return Err(CliError::protocol("the reconnect got a generic response"));
+            }
+            match offline_waits.next() {
+                Some(seconds) => {
+                    tokio::time::sleep(Duration::from_secs(seconds)).await;
+                    continue;
+                }
+                None => {
+                    return Err(CliError::new(
+                        "core_offline",
+                        "the TapHome cloud cannot reach the Core: check that the Core is online, then try again",
+                    )
+                    .with_core_code(21)
+                    .with_exit(crate::errors::EXIT_CONNECTION))
+                }
+            }
+        }
         let result = session.reconnect["ReconnectResultId"].as_i64().unwrap_or(0);
         let offered = session.reconnect["DbHash"]
             .as_str()
@@ -319,6 +401,7 @@ pub async fn reconnect(ctx: &Ctx, stored: &StoredSession) -> Result<Reconnect> {
         if let Some(e) = failure {
             return Err(e);
         }
+        attempt += 1;
     }
     Err(CliError::protocol("the Core keeps rejecting the DbHash"))
 }
@@ -328,9 +411,17 @@ async fn close_then<T>(session: Session, value: T) -> T {
     value
 }
 
-/// A stored session counts only for the configured host and user.
-fn stored_for_config(ctx: &Ctx) -> Option<StoredSession> {
+/// A stored session counts only for the configured host and user, or in cloud mode for the
+/// configured TapHome account and location.
+pub fn stored_for_config(ctx: &Ctx) -> Option<StoredSession> {
     config::load_session(&ctx.env).filter(|s| {
+        if let Some(email) = &ctx.config.cloud_email {
+            let location_ok = ctx.config.location.as_ref().is_none_or(|w| {
+                s.location_id.eq_ignore_ascii_case(w)
+                    || s.location_name.as_ref().map(|n| n.to_lowercase()) == Some(w.to_lowercase())
+            });
+            return client::is_tunnel(&s.host) && s.user == email.to_lowercase() && location_ok;
+        }
         ctx.config.host.as_ref().is_none_or(|h| *h == s.host)
             && ctx
                 .config
@@ -338,6 +429,15 @@ fn stored_for_config(ctx: &Ctx) -> Option<StoredSession> {
                 .as_ref()
                 .is_none_or(|u| u.to_lowercase() == s.user)
     })
+}
+
+fn can_log_in(ctx: &Ctx) -> bool {
+    let c = &ctx.config;
+    if c.is_cloud() {
+        c.cloud_password.is_some()
+    } else {
+        c.user.is_some() && c.password.is_some()
+    }
 }
 
 /// Connected session on a valid login: reuses the stored session, logs in when there is none, and logs
@@ -362,12 +462,10 @@ pub async fn open_session(ctx: &Ctx) -> Result<Session> {
                     "the Core rejected a session it just issued",
                 ));
             }
-            Reconnect::WrongSession
-                if ctx.config.user.is_none() || ctx.config.password.is_none() =>
-            {
+            Reconnect::WrongSession if !can_log_in(ctx) => {
                 return Err(CliError::new(
                     "session_invalid",
-                    "the stored session is no longer valid: set TAPHOME_USER and TAPHOME_PASSWORD to log in again",
+                    "the stored session is no longer valid: set TAPHOME_USER and TAPHOME_PASSWORD (or TAPHOME_CLOUD_EMAIL and TAPHOME_CLOUD_PASSWORD) to log in again",
                 )
                 .with_details(json!({"stored_session": true})));
             }

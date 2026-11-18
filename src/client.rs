@@ -1,6 +1,7 @@
 //! WebSocket transport: `/Identify`, login on a throwaway `/Core` socket, and [`Session`].
 //!
-//! A port of `scripts/probe/client.py`. The Core speaks plain `ws://` on the LAN, so there is no TLS.
+//! A port of `scripts/probe/client.py`. The Core speaks plain `ws://` on the LAN. A cloud tunnel is a
+//! full `wss://` URL in place of the host, and the relay forwards the same messages to the Core.
 use crate::errors::{CliError, Result};
 use crate::output::from_hex;
 use crate::{catalog, codec};
@@ -98,19 +99,27 @@ fn merge(base: Value, extra: Value) -> Value {
     Value::Object(map)
 }
 
+/// A host with a scheme is a cloud tunnel URL (`wss://tunnel1.taphome.com/MobileApp`). The CLI uses the
+/// tunnel only with a TapHome account and the LAN only with a local account, so this also decides
+/// `IsLocalAccount`.
+pub fn is_tunnel(host: &str) -> bool {
+    host.contains("://")
+}
+
 async fn connect_ws(host: &str, path: &str, limit: Duration) -> Result<Ws> {
     // The reconnect response is several hundred kB: allow far more than tungstenite's 16 MiB frame default,
     // but keep a finite bound so a broken peer cannot make the CLI allocate without limit.
     const MAX_WS_BYTES: usize = 64 * 1024 * 1024;
+    // The tunnel URL already names its path: the relay routes by the LocationId in the first message.
+    let url = if is_tunnel(host) {
+        host.to_string()
+    } else {
+        format!("ws://{host}{path}")
+    };
     let config = WebSocketConfig::default()
         .max_message_size(Some(MAX_WS_BYTES))
         .max_frame_size(Some(MAX_WS_BYTES));
-    match timeout(
-        limit,
-        connect_async_with_config(format!("ws://{host}{path}"), Some(config), false),
-    )
-    .await
-    {
+    match timeout(limit, connect_async_with_config(url, Some(config), false)).await {
         Err(_) => Err(timed_out("connecting to the Core")),
         Ok(Err(WsError::Url(_))) => Err(CliError::new(
             "missing_config",
@@ -180,7 +189,8 @@ pub async fn login(
 ) -> Result<Value> {
     let fields = merge(
         json!({"LocationId": location_id, "LoginOrEmail": user.to_lowercase(),
-               "PasswordHashOrAuthorizationToken": password_hash, "ServerClientDeviceId": 0, "IsLocalAccount": true}),
+               "PasswordHashOrAuthorizationToken": password_hash, "ServerClientDeviceId": 0,
+               "IsLocalAccount": !is_tunnel(host)}),
         identity(device_id),
     );
     let exchange = async {
@@ -252,7 +262,13 @@ fn dispatch(shared: &Shared, msg: Value) {
     match message_kind(&msg) {
         Some(kind @ ("Response" | "Progress")) => {
             let mut rid = msg["RequestsId"].as_i64().unwrap_or(0);
-            if msg["$type"] == "MessageReconnectResponse" {
+            // The cloud relay answers a reconnect it cannot forward with a MessageGenericResponse
+            // (CoreOffline) that does not carry the request id. Id 1 is pending only during the reconnect.
+            if msg["$type"] == "MessageReconnectResponse"
+                || msg["$type"] == "MessageGenericResponse"
+                    && !st.pending.contains_key(&rid)
+                    && st.pending.contains_key(&1)
+            {
                 rid = 1;
             } else if rid == -1 {
                 if let Some(min) = st.pending.keys().min() {
@@ -384,8 +400,9 @@ impl Session {
             reconnect: Value::Null,
         };
         let mut fields = merge(
+            // ServerClientDeviceId stays 0 on the tunnel too: the relay answered CoreOffline to the cloud id.
             json!({"LocationId": location_id, "Login": user.to_lowercase(), "SessionId": session_id,
-                   "IsLocalAccount": true, "ServerClientDeviceId": 0}),
+                   "IsLocalAccount": !is_tunnel(host), "ServerClientDeviceId": 0}),
             identity(device_id),
         );
         if let Some(hash) = db_hash.filter(|h| !h.is_empty()) {

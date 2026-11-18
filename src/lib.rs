@@ -3,6 +3,7 @@
 pub mod catalog;
 pub mod cli;
 pub mod client;
+pub mod cloud;
 pub mod codec;
 pub mod commands;
 pub mod config;

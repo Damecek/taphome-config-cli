@@ -77,3 +77,8 @@ broadcastDeviceListUpdated: {verified: true, date: "2026-11-17", core: "2025.2.3
 broadcastDeviceUpdated: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "arrives once after a rename and once after a script property change; no subscription needed"}
 broadcastTriggerModelsUpdated: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "arrives once after a smart rule create; no subscription needed"}
 broadcastTriggerModelsDeleted: {verified: true, date: "2026-11-17", core: "2025.2.32396", protocol: 89, note: "arrives once after a smart rule delete; no subscription needed"}
+
+# Live cloud verification, 2026-11-18, TapHome account of the owner, Core reached through the cloud tunnel
+cloudGetTunnelEndpoints: {verified: true, date: "2026-11-18", core: "2025.2.32396", protocol: 89, note: "no auth; tunnels are wss://tunnel1.taphome.com/MobileApp and wss://tunnel2.taphome.com/MobileApp; also returns cloudTimeUtc, updatesHost and crmUserApiHost"}
+cloudLogin: {verified: true, date: "2026-11-18", core: "2025.2.32396", protocol: 89, note: "plain password over HTTPS; returns token and myInfo.myLocations[] with locationId, name and authorizationToken; registers a client device named by deviceName"}
+cloudGetLocationsStatus: {verified: true, date: "2026-11-18", core: "2025.2.32396", protocol: 89, note: "Bearer token; isOnline, connectionCreatedOnUtc, disconnectedOnUtc (0001-01-01 while connected)"}

@@ -63,7 +63,7 @@ When the Core answered with an error, `core_error_code` is its numeric `ErrorCod
 | 7 | Refused by a CLI safety gate | `unverified_operation`, `write_not_allowed`, `roundtrip_mismatch`, and `already_exist` from `rule apply` |
 | 8 | Post-write verification failed | `verify_failed` |
 
-Two cases deviate from the table. `unauthorized` with the message "the user has no remote access" exits with 3. `already_exist` from `rule apply` (a live rule with that name exists) exits with 7, while the same code from the Core exits with 5.
+Three cases deviate from the table. `core_offline` from the cloud relay during the connect exits with 4. `unauthorized` with the message "the user has no remote access" exits with 3. `already_exist` from `rule apply` (a live rule with that name exists) exits with 7, while the same code from the Core exits with 5.
 
 ### Error codes
 
@@ -73,13 +73,14 @@ CLI codes:
 |---|---|
 | `usage` | The command line does not parse. |
 | `invalid_input` | A file, id, key or value is wrong. The message says which. |
-| `missing_config` | A required `TAPHOME_*` variable is missing, a `_FILE` cannot be read, `TAPHOME_HOST` is not a valid host, or no config directory can be found (no `HOME` and no `TAPHOME_CONFIG_DIR`). |
-| `login_failed` | The Core refused the login. `details.login_result` names the reason, for example `WrongPassword`. |
+| `missing_config` | A required `TAPHOME_*` variable is missing, a `_FILE` cannot be read, `TAPHOME_HOST` is not a valid host, both `TAPHOME_HOST` and `TAPHOME_CLOUD_EMAIL` are set, or no config directory can be found (no `HOME` and no `TAPHOME_CONFIG_DIR`). |
+| `login_failed` | The Core refused the login. `details.login_result` names the reason, for example `WrongPassword`. In cloud mode also when `cloudapi.taphome.com` refuses the TapHome account (`details.http_status`). |
 | `session_invalid` | The stored session was rejected and no password is available to log in again. |
 | `salt_missing` | Login needs the salt and the binary has none (see [Salt lookup](#salt-lookup)). |
 | `connection_failed` | The socket could not be opened or broke. On macOS, "No route to host" usually means the Local Network permission is missing. |
 | `timeout` | A step exceeded its limit. |
 | `core_not_ready` | The Core is still starting. Try again in about 10 seconds. |
+| `core_offline` | Cloud mode. The relay kept answering CoreOffline (ErrorCode 21) for about 20 seconds after the CLI retried. The Core is probably not connected to the cloud. Exits with 4. The same name from a Core answer to a request exits with 5. |
 | `protocol_error` | An unexpected answer, for example a wrong response class. |
 | `not_found`, `ambiguous` | A local lookup of a device, rule or interface. |
 | `unverified_operation` | The operation or variant was never tested against a real Core and `--allow-unverified` is missing. |
@@ -113,7 +114,7 @@ Diffs of `device set-props` and `pp import` mask password and token values in th
 
 | Command | What it does | `data` |
 |---|---|---|
-| `auth login` | Needs `TAPHOME_HOST`, `TAPHOME_USER` and `TAPHOME_PASSWORD`. Reads the location from `/Identify`, sends `MessageLoginRequest` (`login`) on a throwaway socket and stores the session. | `user`, `location` (the location name), `session_stored` |
+| `auth login` | LAN: needs `TAPHOME_HOST`, `TAPHOME_USER` and `TAPHOME_PASSWORD`. Reads the location from `/Identify`, sends `MessageLoginRequest` (`login`) on a throwaway socket and stores the session. Cloud: needs `TAPHOME_CLOUD_EMAIL` and `TAPHOME_CLOUD_PASSWORD` (and `TAPHOME_LOCATION` when the account has several locations). Calls `login2` and `tunnelendpoints3` on `cloudapi.taphome.com`, then logs in through the tunnel with the location's authorization token. | `user`, `location` (the location name), `session_stored` |
 | `auth status` | Local read of the stored session. If one exists, it also reconnects to ask whether the Core still accepts it. | `stored`, `valid`, `core_version`, `protocol`, `user`, `host_configured`, `salt_source` (`env`, `built-in` or `missing`). `host` appears only with `--show-secrets`. |
 | `auth logout` | Deletes `session.json`. Does not contact the Core. | `session_removed` |
 

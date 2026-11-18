@@ -7,7 +7,8 @@ use serde_json::{json, Value};
 
 #[derive(Subcommand)]
 pub enum Cmd {
-    /// Log in with TAPHOME_HOST, TAPHOME_USER and TAPHOME_PASSWORD and store the session
+    /// Log in with TAPHOME_HOST, TAPHOME_USER and TAPHOME_PASSWORD (LAN), or with
+    /// TAPHOME_CLOUD_EMAIL and TAPHOME_CLOUD_PASSWORD (TapHome cloud), and store the session
     Login,
     /// Show whether a stored session exists and whether the Core still accepts it
     Status,
@@ -29,7 +30,8 @@ pub async fn run(ctx: &Ctx, cmd: Cmd) -> Result<Value, CliError> {
 }
 
 async fn status(ctx: &Ctx) -> Result<Value, CliError> {
-    let stored = config::load_session(&ctx.env);
+    // Only a session that matches the configured mode, host or account and location counts.
+    let stored = core::stored_for_config(ctx);
     let host = ctx
         .config
         .host

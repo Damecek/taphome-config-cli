@@ -116,15 +116,41 @@ pub struct Config {
     pub host: Option<String>,
     pub user: Option<String>,
     pub password: Option<String>,
+    /// TapHome account for remote access through the cloud tunnel. Set means cloud mode.
+    pub cloud_email: Option<String>,
+    pub cloud_password: Option<String>,
+    /// Location name or id, needed when the TapHome account has several.
+    pub location: Option<String>,
+    /// Cloud API base, `TAPHOME_CLOUD_API` (tests and debugging), else the TapHome default.
+    pub cloud_api: String,
 }
 
 impl Config {
     pub fn load(env: &Env) -> Result<Config> {
-        Ok(Config {
+        let config = Config {
             host: env.get_or_file("TAPHOME_HOST")?,
             user: env.get_or_file("TAPHOME_USER")?,
             password: env.get_or_file("TAPHOME_PASSWORD")?,
-        })
+            cloud_email: env.get_or_file("TAPHOME_CLOUD_EMAIL")?,
+            cloud_password: env.get_or_file("TAPHOME_CLOUD_PASSWORD")?,
+            location: env.get_or_file("TAPHOME_LOCATION")?,
+            cloud_api: env
+                .get("TAPHOME_CLOUD_API")
+                .map(|a| format!("{}/", a.trim_end_matches('/')))
+                .unwrap_or_else(|| crate::cloud::DEFAULT_API.to_string()),
+        };
+        // Which user writes must never depend on precedence rules: LAN and cloud are exclusive.
+        if config.host.is_some() && config.cloud_email.is_some() {
+            return Err(CliError::new(
+                "missing_config",
+                "set either TAPHOME_HOST (LAN) or TAPHOME_CLOUD_EMAIL (cloud), not both",
+            ));
+        }
+        Ok(config)
+    }
+
+    pub fn is_cloud(&self) -> bool {
+        self.cloud_email.is_some()
     }
 }
 
@@ -187,6 +213,9 @@ pub struct StoredSession {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub db_hash: Option<String>,
+    /// Location name, kept for cloud sessions so TAPHOME_LOCATION can match it by name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location_name: Option<String>,
 }
 
 fn session_path(env: &Env) -> Result<PathBuf> {
@@ -267,6 +296,7 @@ mod tests {
                     user: String::new(),
                     session_id: String::new(),
                     db_hash: None,
+                    location_name: None,
                 },
             )
             .unwrap_err(),

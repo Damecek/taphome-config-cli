@@ -61,7 +61,7 @@ The app connects to `ws://<core>/Core`. The scheme is plain `ws`, the port is al
 
 ### Cloud path
 
-The cloud API returns a list of tunnel URLs from `GET tunnelendpoints3`. The app picks one at random and uses it as the WebSocket URL. The message protocol on the tunnel is the same as on the LAN. The relay routes by the `LocationId` inside the first message (derived, the routing rule is inferred). A reconnect over the tunnel can end with `RemoteAccessDisabled` (reconnect result 5) when the user has remote access switched off. Whether the Core or the relay sends it is not known.
+The cloud API returns a list of tunnel URLs from `GET tunnelendpoints3`, confirmed `wss://tunnel1.taphome.com/MobileApp` and `wss://tunnel2.taphome.com/MobileApp`. The app picks one at random and uses it as the WebSocket URL. The message protocol on the tunnel is the same as on the LAN, and the relay routes by the `LocationId` inside the first message (confirmed). Only TapHome (cloud) accounts get through. A local account gets `RemoteAccessDisabled` (reconnect result 5) from the Core (confirmed). When the relay cannot forward a reconnect, it answers `MessageGenericResponse` with ErrorCode 21 (CoreOffline). It does that for a few seconds after the previous tunnel socket of the same session closed, so a client waits and retries. Details are in `verification.md`.
 
 ### How the app chooses (derived)
 
