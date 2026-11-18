@@ -54,7 +54,12 @@ fn call(
         )
     })?;
     let status = response.status().as_u16();
-    let text = response.body_mut().read_to_string().unwrap_or_default();
+    let text = response.body_mut().read_to_string().map_err(|e| {
+        CliError::new(
+            "connection_failed",
+            format!("cannot read the TapHome cloud reply: {e}"),
+        )
+    })?;
     Ok((
         status,
         serde_json::from_str(&text).unwrap_or(Value::String(text)),
