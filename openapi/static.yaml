@@ -129,7 +129,7 @@ x-taphome:
       tls: none on the LAN
       subProtocol: none
       compression: none (permessage-deflate is not proposed)
-      cloudTunnel: the cloud returns full tunnel URLs (GET tunnelendpoints3), same protocol
+      cloudTunnel: the cloud returns full tunnel URLs (GET tunnelendpoints3, confirmed wss://tunnel1.taphome.com/MobileApp and wss://tunnel2.taphome.com/MobileApp), same protocol
     framing: One WebSocket binary frame is exactly one protobuf-net serialization of MessageBase. No length prefix,
       no envelope. Text frames are rejected. /Identify sends a bare LocationInfo instead.
     subtypeEncoding: MessageBase has one nested length-delimited field per message class, field number = the include
@@ -1445,6 +1445,9 @@ schemas:
       updatesHost:
         type: string
         description: Host of the firmware and update rules API.
+      crmUserApiHost:
+        type: string
+        description: Seen in the live response (appservices.taphome.com). Not used by the app.
   CloudHistorySasSignature:
     type: object
     properties:

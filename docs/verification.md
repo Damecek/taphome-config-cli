@@ -96,13 +96,27 @@ Final state equal to the baseline: 136 devices, 87 live rules (88 in total), 4 i
 
 Not verified on a real Core: `device delete --force` and `--allow-referenced`, `device add-virtual` with other models or with properties, `pp import` with TCP, UDP, FTP or MQTT modules, the devices-only form and templates with several devices or `DeviceVariables` placeholders, creating an enabled rule or a rule of another type, updating a rule of a type other than 12, `rule errors` and `io errors` answers with entries, `raw call` writes, and release binaries for Linux and Windows, the release workflow and `install.sh` (no release exists yet).
 
+## Remote access through the cloud, 2026-11-18
+
+Setup. The owner's TapHome account, the same Core (2025.2.32396, protocol 89), first `scripts/probe` with a patched transport, then the release build of `taphome`. Only logins and reads.
+
+| Area | Fact |
+|---|---|
+| Endpoints | `GET https://cloudapi.taphome.com/api/user/tunnelendpoints3` needs no auth and returns `wss://tunnel1.taphome.com/MobileApp` and `wss://tunnel2.taphome.com/MobileApp`. The relay is an ASP.NET Kestrel server. |
+| Routing | The relay forwards the first message to the Core named by its `LocationId`. Login and reconnect messages are the same as on the LAN. |
+| Local account | A local account's session reconnected through the tunnel gets `ReconnectResult` 5 (RemoteAccessDisabled). The app says "Remote access is no longer supported for local users" and lets an admin only switch it off for a local user. |
+| Cloud account | `login2` returns the location's `authorizationToken`. A `MessageLoginRequest` with `IsLocalAccount` false, the e-mail and the salted hash of the lower-case token Guid gets `LoginResult` 1. The reconnect then works as on the LAN: result 4 with the `DbHash`, then result 1 with the full configuration (158 kB, 136 devices, 88 rules). |
+| Relay refusals | The relay answers a reconnect with `MessageGenericResponse` ErrorCode 21 (CoreOffline, "Couldn't connect to desired core") without a request id when it cannot forward it. This happened when a reconnect followed the close of the previous tunnel socket of the same session within about 3 s, and every time `ServerClientDeviceId` carried the cloud client device id instead of 0. A second reconnect on the same tunnel socket made the relay close the TCP connection. |
+| CLI | `auth login`, `auth status`, `sync`, `device list` and `rule list` ran through the tunnel. With a stored session each command took about 1 s. |
+
 ## Not yet tested
 
 - Writes. Modbus config, TapHome Bus config (terminal mapping), other virtual device models, device actions and outputs on real hardware, users and permissions, zones, dashboards and categories, week plans, MQTT module creation, TCP, UDP and FTP Packet Parser modules, creating an enabled smart rule, creating or updating a rule of a type other than 12, `ForceDelete` true, several objects in one message, backup and restore.
 - Persistence across a Core restart.
 - Reads. Permission getters returned empty rows, so the row layout is unseen. Error list responses with entries (`getDeviceErrors`, `getSmartRuleErrors` and the CLI's `io errors` and `rule errors` returned only empty lists) and the `getValueHistory` container layout.
 - Not observed because nothing changed. `deviceTimersUpdated`, `interfaceUpdated`, `smartRuleErrorStatusChanges` and `moduleUptime`.
-- The TapHomeApi HTTP routes, the cloud API, UDP and mDNS discovery, session lifetime and the Next line.
+- Writes through the cloud tunnel. They use the same messages as on the LAN, but no write was sent through the tunnel yet.
+- The TapHomeApi HTTP routes, the cloud API calls other than `login2`, `tunnelendpoints3` and `getlocationsstatus`, UDP and mDNS discovery, session lifetime and the Next line.
 
 ## How to add a result
 

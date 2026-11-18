@@ -10,9 +10,10 @@ description: Use when configuring or inspecting a TapHome Core with the `taphome
 ## Preconditions
 
 1. `taphome --version` works. If not, install it as the README describes.
-2. `taphome auth status` prints `"valid": true`. If it does not, ask the owner to log in. Credentials come only from the environment (`TAPHOME_HOST`, `TAPHOME_USER`, `TAPHOME_PASSWORD`, or the `_FILE` variants) or from the owner through the harness secret prompt. Never put them on the command line, in a file inside a repository, or in a message.
+2. `taphome auth status` prints `"valid": true`. If it does not, ask the owner to log in. Credentials come only from the environment (`TAPHOME_HOST`, `TAPHOME_USER`, `TAPHOME_PASSWORD` on the LAN, or `TAPHOME_CLOUD_EMAIL`, `TAPHOME_CLOUD_PASSWORD` and optionally `TAPHOME_LOCATION` through the TapHome cloud, or the `_FILE` variants) or from the owner through the harness secret prompt. Never put them on the command line, in a file inside a repository, or in a message.
 3. `salt_source` in the status output must not be `missing`. If it is, login fails with `salt_missing`. Tell the owner to use a release binary.
-4. On macOS, `connection_failed` with "No route to host" means the app running you lacks the Local Network permission. Tell the owner to grant it under System Settings, Privacy and Security, Local Network.
+4. Away from home, use the cloud variables with a TapHome account. A local account gets `unauthorized` ("no remote access") through the cloud. `core_offline` means the Core is not connected to the cloud. Tell the owner instead of retrying in a loop.
+5. On macOS, `connection_failed` with "No route to host" means the app running you lacks the Local Network permission. Tell the owner to grant it under System Settings, Privacy and Security, Local Network.
 
 ## Rules for a live home
 

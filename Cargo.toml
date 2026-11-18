@@ -1,6 +1,6 @@
 [package]
 name = "taphome-config-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Command line tool that lets AI agents configure a TapHome Core over its WebSocket protobuf protocol"
 publish = false
@@ -23,7 +23,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 sha2 = "0.11"
 tokio = { version = "1", features = ["rt", "net", "time", "macros", "sync"] }
-tokio-tungstenite = "0.30"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [profile.release]
 lto = true

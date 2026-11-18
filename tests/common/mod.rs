@@ -33,6 +33,11 @@
 //! * `core.set_db_hash(..)` makes clients retry the DbHash handshake, `core.forget_sessions()` makes the
 //!   stored session answer WrongSession, `core.with_state(|s| ..)` reads or edits the whole state.
 //!
+//! Cloud: `FakeCloud::start(&core)` serves `login2` and `tunnelendpoints3` over plain HTTP and points
+//! the tunnel at the fake Core. `cloud_overrides(&cloud)` switches `run_cli_with` to cloud mode.
+//! `core.with_state(|s| s.offline_next = n)` makes the next n reconnects get the relay's CoreOffline;
+//! `s.account_flags` records IsLocalAccount of every login and reconnect.
+//!
 //! Implemented requests: Identify, login, reconnect, GetBasicCoreProperties, AddDevice,
 //! UpdateMultipleDevicesProperties, DeleteDevice, HttpApiConfig, UpdateTriggerModels,
 //! DeleteTriggerModels, GetScriptLastRunValues, GetDeviceErrors, GetDeviceLog. Anything else gets
@@ -62,6 +67,10 @@ pub const USER: &str = "TestUser";
 pub const USER_LOGIN: &str = "testuser";
 pub const PASSWORD: &str = "test-password";
 pub const LOCATION_ID: &str = "11111111-2222-3333-4444-555555555555";
+pub const CLOUD_EMAIL: &str = "Owner@Example.com";
+pub const CLOUD_PASSWORD: &str = "cloud-password";
+/// The cloud sends it upper-case; the Core login hashes the lower-case Guid.
+pub const CLOUD_TOKEN: &str = "AAAABBBB-CCCC-4DDD-8EEE-FFFF00001111";
 
 // ---------------------------------------------------------------- state
 
@@ -121,6 +130,8 @@ pub struct CoreState {
     pub drop_next_write: bool,
     pub silent_next: bool,
     pub garbage_next: bool,
+    pub offline_next: u32,
+    pub account_flags: Vec<bool>,
     counter: u64,
 }
 
@@ -156,6 +167,8 @@ impl CoreState {
             location_name: "Test home".into(),
             password_hash: password_hash(PASSWORD, SALT.as_bytes()),
             sessions: HashSet::new(),
+            offline_next: 0,
+            account_flags: vec![],
             db_hash: guid(900),
             protocol: 89,
             ccus: vec![
@@ -534,6 +547,18 @@ fn handle_frame(state: &Shared, bus: &broadcast::Sender<Vec<u8>>, data: &[u8]) -
         return vec![];
     }
     st.requests.push(class.clone());
+    if class == "MessageReconnectRequest" && st.offline_next > 0 {
+        // What the cloud relay sends when it cannot reach the Core: no request id, no acknowledgement.
+        st.offline_next -= 1;
+        return vec![frame(
+            "MessageGenericResponse",
+            &json!({"ErrorCode": 21, "ErrorMessage": "Couldn't connect to desired core. Is Core online?"}),
+            0,
+        )];
+    }
+    if class == "MessageLoginRequest" || class == "MessageReconnectRequest" {
+        st.account_flags.push(msg["IsLocalAccount"] == true);
+    }
     let mut out = vec![];
     if rid != 0 {
         // The Core acknowledges each request before it answers.
@@ -559,9 +584,17 @@ fn handle_frame(state: &Shared, bus: &broadcast::Sender<Vec<u8>>, data: &[u8]) -
     let reply = match class.as_str() {
         "MessageLoginRequest" => {
             st.logins += 1;
-            let result = if msg["LocationId"] != LOCATION_ID || msg["LoginOrEmail"] != USER_LOGIN {
+            let (login, hash) = if msg["IsLocalAccount"] == true {
+                (USER_LOGIN.to_string(), st.password_hash.clone())
+            } else {
+                (
+                    CLOUD_EMAIL.to_lowercase(),
+                    password_hash(&CLOUD_TOKEN.to_lowercase(), SALT.as_bytes()),
+                )
+            };
+            let result = if msg["LocationId"] != LOCATION_ID || msg["LoginOrEmail"] != login {
                 3
-            } else if msg["PasswordHashOrAuthorizationToken"] != st.password_hash.as_str() {
+            } else if msg["PasswordHashOrAuthorizationToken"] != hash.as_str() {
                 2
             } else {
                 1
@@ -888,4 +921,91 @@ pub fn stored_session(core: &FakeCore) -> Value {
 pub fn mode(path: &std::path::Path) -> u32 {
     use std::os::unix::fs::PermissionsExt;
     std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+// ---------------------------------------------------------------- fake cloud
+
+/// Plain-HTTP stand-in for `cloudapi.taphome.com`. Counts the `login2` calls.
+pub struct FakeCloud {
+    pub api: String,
+    pub logins: Arc<AtomicU32>,
+}
+
+impl FakeCloud {
+    pub fn start(core: &FakeCore) -> FakeCloud {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = StdListener::bind("127.0.0.1:0").expect("bind loopback");
+        let api = format!("http://{}/api/user", listener.local_addr().unwrap());
+        let tunnel = format!("ws://{}/MobileApp", core.host());
+        let logins = Arc::new(AtomicU32::new(0));
+        let counter = logins.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    continue;
+                }
+                let mut length = 0;
+                loop {
+                    let mut header = String::new();
+                    if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(v) = header.to_lowercase().strip_prefix("content-length:") {
+                        length = v.trim().parse().unwrap_or(0);
+                    }
+                }
+                let mut body = vec![0; length];
+                let _ = reader.read_exact(&mut body);
+                let body: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                let (status, reply) = if line.starts_with("GET /api/user/tunnelendpoints3") {
+                    (
+                        200,
+                        json!({"tunnels": [tunnel], "updatesHost": "example.invalid"}),
+                    )
+                } else if line.starts_with("POST /api/user/login2") {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                    if body["email"] == CLOUD_EMAIL && body["password"] == CLOUD_PASSWORD {
+                        (
+                            200,
+                            json!({"token": "bearer-token", "myInfo": {"myLocations": [
+                            {"locationId": LOCATION_ID.to_uppercase(), "name": "Test home", "authorizationToken": CLOUD_TOKEN}]}}),
+                        )
+                    } else {
+                        (
+                            400,
+                            json!({"title": "Bad Request", "detail": "wrong e-mail or password"}),
+                        )
+                    }
+                } else {
+                    (404, json!({"title": "Not Found"}))
+                };
+                let text = reply.to_string();
+                let mut stream = stream;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
+                    text.len()
+                );
+            }
+        });
+        FakeCloud { api, logins }
+    }
+
+    pub fn logins(&self) -> u32 {
+        self.logins.load(Ordering::SeqCst)
+    }
+}
+
+/// `run_cli_with` overrides for cloud mode against `cloud`: no LAN host, user or password.
+pub fn cloud_overrides(cloud: &FakeCloud) -> Vec<(&'static str, Option<String>)> {
+    vec![
+        ("TAPHOME_HOST", None),
+        ("TAPHOME_USER", None),
+        ("TAPHOME_PASSWORD", None),
+        ("TAPHOME_CLOUD_EMAIL", Some(CLOUD_EMAIL.to_string())),
+        ("TAPHOME_CLOUD_PASSWORD", Some(CLOUD_PASSWORD.to_string())),
+        ("TAPHOME_CLOUD_API", Some(cloud.api.clone())),
+    ]
 }

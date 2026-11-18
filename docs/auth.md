@@ -31,14 +31,14 @@ The session is never put into a URL or a header. Every new `/Core` socket, local
 
 A fresh client sends all changeset ids as 0 and an empty `DbHash`. Confirmed: the Core then answers `ReconnectResult` 4 (FaultyStorageClient) with its current `DbHash`. The client reconnects with that `DbHash` and gets `ReconnectResult` 1 and everything in one message.
 
-## Flow for a cloud account (derived)
+## Flow for a cloud account (confirmed 2026-11-18)
 
 1. `POST api/user/login2` with e-mail and password returns a cloud token and `myInfo.myLocations[]`. Each location has a `locationId`, a `name`, an `ipOnLocalNetwork`, a `partialAccessToken` and an `authorizationToken` (a Guid).
 2. For the Core, send a `MessageLoginRequest` with `LoginOrEmail` set to the e-mail, `IsLocalAccount` false, and the secret set to the authorization token written as a lowercase Guid with hyphens.
 3. The secret goes through the same password hash as a local password (next section).
 4. The rest is identical to the local flow. The Core answers `WrongAuthToken` (4) when the token is stale, and the app then refreshes the cloud user information, at most once every 60 s.
 
-Cloud accounts reach the Core over the LAN or over the tunnel with the same message. User management for cloud users is a Core operation. The Core keeps the list of users that may access it, and the cloud only proves who the person is.
+Cloud accounts reach the Core over the LAN or over the tunnel with the same message. Through the tunnel, the reconnect must carry `ServerClientDeviceId` 0 (the cloud client device id got CoreOffline from the relay). Local accounts cannot use the tunnel: the Core answers `ReconnectResult` 5. User management for cloud users is a Core operation. The Core keeps the list of users that may access it, and the cloud only proves who the person is.
 
 ## Cloud HTTP API bearer (derived)
 

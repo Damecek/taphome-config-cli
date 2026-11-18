@@ -8681,7 +8681,13 @@ paths:
       servers:
       - url: https://cloudapi.taphome.com
         description: TapHome cloud API
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-18'
+        core: 2025.2.32396
+        protocol: 89
+        note: Bearer token; isOnline, connectionCreatedOnUtc, disconnectedOnUtc (0001-01-01 while connected)
   /api/user/login2:
     post:
       operationId: cloudLogin
@@ -8715,7 +8721,14 @@ paths:
       servers:
       - url: https://cloudapi.taphome.com
         description: TapHome cloud API
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-18'
+        core: 2025.2.32396
+        protocol: 89
+        note: plain password over HTTPS; returns token and myInfo.myLocations[] with locationId, name and authorizationToken;
+          registers a client device named by deviceName
   /api/user/register2:
     post:
       operationId: cloudRegister
@@ -8808,7 +8821,14 @@ paths:
       servers:
       - url: https://cloudapi.taphome.com
         description: TapHome cloud API
-      x-verified: false
+      x-verified: true
+      x-verification:
+        verified: true
+        date: '2026-11-18'
+        core: 2025.2.32396
+        protocol: 89
+        note: no auth; tunnels are wss://tunnel1.taphome.com/MobileApp and wss://tunnel2.taphome.com/MobileApp;
+          also returns cloudTimeUtc, updatesHost and crmUserApiHost
   /api/user/updateClientDevicePushId:
     post:
       operationId: cloudUpdateClientDevicePushId
@@ -11956,6 +11976,9 @@ components:
         updatesHost:
           type: string
           description: Host of the firmware and update rules API.
+        crmUserApiHost:
+          type: string
+          description: Seen in the live response (appservices.taphome.com). Not used by the app.
     CloudUpdateClientDeviceGetGlobalUserInfoModel:
       type: object
       properties:
@@ -25737,7 +25760,8 @@ x-taphome:
       tls: none on the LAN
       subProtocol: none
       compression: none (permessage-deflate is not proposed)
-      cloudTunnel: the cloud returns full tunnel URLs (GET tunnelendpoints3), same protocol
+      cloudTunnel: the cloud returns full tunnel URLs (GET tunnelendpoints3, confirmed wss://tunnel1.taphome.com/MobileApp
+        and wss://tunnel2.taphome.com/MobileApp), same protocol
     framing: One WebSocket binary frame is exactly one protobuf-net serialization of MessageBase. No length prefix,
       no envelope. Text frames are rejected. /Identify sends a bare LocationInfo instead.
     subtypeEncoding: MessageBase has one nested length-delimited field per message class, field number = the include

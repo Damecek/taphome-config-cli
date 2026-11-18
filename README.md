@@ -10,7 +10,7 @@ Step 1 is drafted and step 2 exists. Step 2 is `taphome`, a Rust command line to
 
 The result of the reverse engineering is that TapHome has no REST API for configuration. The Android app talks to the TapHome Core over a WebSocket on the LAN (`ws://<core>/Core`, port 80) and exchanges binary protobuf messages. The Core stores the whole configuration. The cloud only holds accounts and a location list, and relays the same WebSocket when the phone is away from home.
 
-Login, the initial configuration sync, 48 read operations and the core write paths were confirmed against a real Core (software 2025.2.32396, protocol version 89). The confirmed writes are: create, rename and delete a virtual device, create a Packet Parser module with a device from a configuration JSON and change its script, create and delete a smart rule. The remaining operations are derived from the app code. [`docs/verification.md`](docs/verification.md) lists what is confirmed and what is not.
+Login, the initial configuration sync, 48 read operations and the core write paths were confirmed against a real Core (software 2025.2.32396, protocol version 89). The confirmed writes are: create, rename and delete a virtual device, create a Packet Parser module with a device from a configuration JSON and change its script, create and delete a smart rule. The remaining operations are derived from the app code. Remote access through the cloud tunnel with a TapHome account was confirmed on 2026-11-18 for login and reads. [`docs/verification.md`](docs/verification.md) lists what is confirmed and what is not.
 
 - [`openapi/taphome-core.yaml`](openapi/taphome-core.yaml): the OpenAPI 3.1 document. WebSocket messages appear as virtual `POST /Core/messages/{Class}` paths, broadcasts as `webhooks`.
 - [`docs/architecture.md`](docs/architecture.md): components, LAN and cloud paths, discovery, endpoints, Official and Next lines.
@@ -75,6 +75,18 @@ Each one also has a `_FILE` variant (`TAPHOME_PASSWORD_FILE=/path/to/file`) that
 taphome auth login
 taphome auth status
 ```
+
+### Remote access through the TapHome cloud
+
+Away from home, the CLI reaches the Core through the TapHome cloud tunnel. This needs a TapHome account (the e-mail you use in the TapHome app) that is a user of the Core, with admin rights for writes. A local account cannot connect remotely: the Core answers `RemoteAccessDisabled`, because TapHome no longer supports remote access for local users.
+
+| Variable | Meaning |
+|---|---|
+| `TAPHOME_CLOUD_EMAIL` | E-mail of the TapHome account. Setting it switches the CLI to the cloud. |
+| `TAPHOME_CLOUD_PASSWORD` | Its password. |
+| `TAPHOME_LOCATION` | Name or id of the location. Needed only when the account has several. |
+
+Leave `TAPHOME_HOST` unset in this mode. Setting both is refused with `missing_config`, so it is always clear which account writes. The `_FILE` variants work here too. `auth login` logs in to `cloudapi.taphome.com`, picks the location, logs in to the Core through `wss://tunnel1.taphome.com/MobileApp` and stores the session. All commands then work as on the LAN. The first command after a login can take up to about 10 seconds, because the relay needs a short pause between sockets of one session. Later commands take about a second.
 
 `auth login` stores the session in `~/.config/taphome/session.json` (on Windows `%APPDATA%\taphome\session.json`, `TAPHOME_CONFIG_DIR` overrides the directory). The directory is created with mode 700 and `session.json` and `device-id` are written with mode 600. Later commands reuse the session and log in again when the Core rejects it and the password is in the environment. Without the password, they fail with `session_invalid`. `taphome auth logout` deletes the file.
 
