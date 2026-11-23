@@ -3,6 +3,7 @@ name = "taphome-config-cli"
 version = "0.2.0"
 edition = "2021"
 description = "Command line tool that lets AI agents configure a TapHome Core over its WebSocket protobuf protocol"
+license = "MIT"
 publish = false
 
 [lib]

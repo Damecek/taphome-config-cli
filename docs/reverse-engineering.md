@@ -74,7 +74,20 @@ All outputs go to `work/`, which Git ignores. The commands run from the reposito
    Inputs are `openapi/operations/*.yaml`, `openapi/static.yaml`, `openapi/verification.yaml` and `work/catalog/official.json`. The output is deterministic.
 6. Test against a Core with the probe in `scripts/probe` (next sections).
 
-The REA MCP server and its skill (see `README.md`) help with the decompiled code. REA is a general reverse-engineering toolkit and none of the pipeline steps depends on it.
+## REA setup
+
+The REA MCP server and its skill help with the decompiled code. REA is a general reverse-engineering toolkit and none of the pipeline steps depends on it.
+
+The project uses [REA](https://github.com/morluto/rea) (`rea-agents@6.9.0`) as a project-scoped MCP server, configured in `.mcp.json`, with its skill in `.agents/skills/reverse-engineer-anything` (linked from `.claude/skills`). On top of the pipeline tools above, it needs the headless jadx MCP server.
+
+```sh
+mkdir -p ~/.local/share/rea/android && cd ~/.local/share/rea/android
+curl -fL -o jadx-headless-mcp-0.7.1-all.jar \
+  https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar
+echo '6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75  jadx-headless-mcp-0.7.1-all.jar' | shasum -a 256 -c -
+```
+
+Override the tool paths with `REA_JADX_MCP_JAR`, `REA_APKTOOL_COMMAND` and `REA_ADB_PATH` if yours differ.
 
 ## What stays in work/
 
