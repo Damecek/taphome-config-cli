@@ -30,7 +30,7 @@ description: Use when configuring or inspecting a TapHome Core with the `taphome
 - Success: `{"ok": true, "command": ..., "data": {...}, "warnings": [...]}`. Read `warnings`, they point at real problems such as a name that is already taken.
 - Failure: `{"ok": false, "error": {"code": ..., "message": ..., "details": {...}}}`. Branch on `error.code`.
 - Exit codes: 0 ok, 2 usage or invalid input, 3 auth or config, 4 connection or timeout, 5 the Core rejected the request, 6 not found or ambiguous, 7 refused by a CLI gate, 8 verification failed.
-- A real write verifies itself with a fresh sync. Check `data.verify.ok` is true. Exit 8 means the Core answered but the expected state was not found. Look at `error.details`, then `sync` before retrying.
+- A real write verifies itself with a fresh sync. Check `data.verify.ok` is true (`raw call` reports `null`, because it has nothing to check). Exit 8 means the Core answered but the expected state was not found. Look at `error.details`, then `sync` before retrying.
 - `error.details.write_sent` equal to `"unknown"` after a timeout means the change may have been applied. Read the state before sending it again.
 - Exit 7 with `unverified_operation` means the variant was never tested on a real Core. Stop and ask the owner. It is not a reason to add `--allow-unverified`.
 
@@ -132,7 +132,7 @@ taphome device set-props <device> --prop IsReadOnly=True --dry-run
 
 - The Core reuses ids. After a delete, a new device or rule can get an old id. Never keep an id across a delete, and find new objects by the ids a write returns or by name.
 - A deleted rule stays in the list as a tombstone with its id. `rule list` hides it, `rule list --all` shows it. A tombstone is not a leftover to clean up.
-- Names can be ambiguous. A second object with the same name makes name lookup fail with `ambiguous`. `add-virtual` and `pp import` warn when a name is already taken.
+- Names can be ambiguous. A second object with the same name makes name lookup fail with `ambiguous`. `add-virtual` and `pp import` refuse a taken name with `already_exist` (exit 7, `details.existing_id`). Pick another name. `--allow-duplicate-name` creates the duplicate anyway.
 - `io values` shows values from the sync that the command just did. Use `io watch --seconds 20 --device <device>` to see changes happen.
 - `rule apply` with a taken name refuses a create (`already_exist`). Pick another name or update the live rule by `Id`.
 - A property you send may come back different, because the Core drops or normalises some keys. `pp import` lists these in `property_differences`.

@@ -60,10 +60,10 @@ When the Core answered with an error, `core_error_code` is its numeric `ErrorCod
 | 4 | Connection or timeout | `connection_failed`, `timeout`, `core_not_ready`, `protocol_error` |
 | 5 | The Core rejected the request | the Core error names below, `not_handled` |
 | 6 | Object not found or ambiguous (local lookup) | `not_found`, `ambiguous` |
-| 7 | Refused by a CLI safety gate | `unverified_operation`, `write_not_allowed`, `roundtrip_mismatch`, and `already_exist` from `rule apply` |
+| 7 | Refused by a CLI safety gate | `unverified_operation`, `write_not_allowed`, `roundtrip_mismatch`, and `already_exist` from `rule apply`, `device add-virtual` and `pp import` |
 | 8 | Post-write verification failed | `verify_failed` |
 
-Three cases deviate from the table. `core_offline` from the cloud relay during the connect exits with 4. `unauthorized` with the message "the user has no remote access" exits with 3. `already_exist` from `rule apply` (a live rule with that name exists) exits with 7, while the same code from the Core exits with 5.
+Three cases deviate from the table. `core_offline` from the cloud relay during the connect exits with 4. `unauthorized` with the message "the user has no remote access" exits with 3. `already_exist` from `rule apply` (a live rule with that name exists), `device add-virtual` and `pp import` (a device with that name exists) exits with 7, while the same code from the Core exits with 5.
 
 ### Error codes
 
@@ -200,14 +200,12 @@ Details:
 
 `raw call` rules:
 
-- A real raw write reports `verify.ok: null`: there is no expected state to check, `delta` is the only evidence.
-
 1. The class must be a known request class, else `invalid_input`.
 2. `--dry-run` is offline. It prints `operation`, `verified`, `kind`, `message` (`class`, `fields`), `diff: null`, `frame_hex` and `frame_redacted`, and sends nothing, not even a sync. The frame and `message.fields` are built from the redacted fields.
 3. A write or action class needs `--allow-write`, else `write_not_allowed`. A class that is not in the registry counts as a write.
 4. A class with `verified: false`, or one that is not in the registry, needs `--allow-unverified`, else `unverified_operation`. So a class without a registry entry needs both switches.
 5. A read or subscribe class prints `class`, `response` and `broadcasts` (counts per class collected for `--wait-broadcasts` seconds, up to 3600).
-6. A write goes through the [write flow](#the-write-flow). Because there is no expected state, its single check always passes. Compare `delta` (the signed change of each count between `state_before` and `state`).
+6. A write goes through the [write flow](#the-write-flow). There is no expected state to check, so a real raw write reports `verify.ok: null`. Compare `delta` (the signed change of each count between `state_before` and `state`).
 
 `--json` and `--json-file` hold the request fields as one JSON object. Field names come from `data/catalog.json` and encoding is strict, so an unknown name is an error.
 

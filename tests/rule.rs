@@ -223,6 +223,24 @@ fn bad_input_files_are_invalid_input() {
     let file = temp_json(&core, "array.json", &json!([1]));
     let (code, _) = run_cli(&core, &["rule", "apply", &file]);
     assert_eq!(code, 2);
+    // the whole `rule get` output, and objects without the keys the command reads, used to panic (`internal`)
+    let (_, got) = run_cli(&core, &["rule", "get", "1"]);
+    assert_eq!(got["ok"], json!(true), "{got}");
+    for (name, value) in [
+        ("envelope.json", got.clone()),
+        ("data.json", got["data"].clone()),
+        ("empty.json", json!({})),
+        ("params.json", json!({"Name": "x", "TriggerParameters": 5})),
+    ] {
+        let file = temp_json(&core, name, &value);
+        let (code, doc) = run_cli(&core, &["rule", "apply", &file, "--dry-run"]);
+        assert_eq!(
+            (code, error(&doc)["code"].clone()),
+            (2, json!("invalid_input")),
+            "{name}: {doc}"
+        );
+    }
+    assert!(core.writes().is_empty());
 }
 
 #[test]

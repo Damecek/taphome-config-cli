@@ -531,7 +531,7 @@ fn ccu_selection() {
 }
 
 #[test]
-fn warns_about_an_existing_device_with_the_same_name() {
+fn refuses_an_existing_device_name_unless_allowed() {
     let core = FakeCore::start();
     let file = temp_file(
         "dup.json",

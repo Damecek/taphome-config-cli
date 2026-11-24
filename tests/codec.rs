@@ -644,3 +644,18 @@ fn message_typed_map_keys_decode_and_round_trip() {
     let bad = json!({"Connections": {"60": {"3": [426]}}});
     assert!(c.encode("IftttAggregatedConnection", &bad).is_err());
 }
+
+#[test]
+fn nan_keeps_the_dotnet_bits() {
+    // .NET double.NaN is 0xFFF8000000000000. A live Core sends it in DoubleParameters of a push button rule, and a
+    // Rust f64::NAN (0x7FF8...) would break the byte-exact round trip that rule updates depend on.
+    let cat = catalog::catalog();
+    let c = Codec::new(cat);
+    let raw = unhex("0a0b080a11000000000000f8ff");
+    let v = c.decode("DeviceRequestParameters", &raw).unwrap();
+    assert_eq!(v["DoubleParameters"]["10"], json!("NaN"), "{v}");
+    assert_eq!(
+        hex(&c.encode("DeviceRequestParameters", &v).unwrap()),
+        hex(&raw)
+    );
+}
