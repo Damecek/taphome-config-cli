@@ -4,7 +4,7 @@ use crate::core::{
     diff_entry, open_session, run_write, Check, Ctx, Rule, Snapshot, WriteFlags, WritePlan,
     WriteSpec,
 };
-use crate::errors::{CliError, Result};
+use crate::errors::{CliError, Result, EXIT_GATE};
 use crate::output::mask_value;
 use clap::{Args, Subcommand};
 use serde_json::{json, Map, Value};
@@ -118,6 +118,9 @@ pub struct AddVirtualArgs {
     /// Initial property, split at the first `=`. Repeatable
     #[arg(long = "prop", value_name = "K=V")]
     props: Vec<String>,
+    /// Create the device even when another device already has this name
+    #[arg(long)]
+    allow_duplicate_name: bool,
     #[command(flatten)]
     flags: WriteFlags,
 }
@@ -381,16 +384,69 @@ async fn update_props(
 
 // ---------------------------------------------------------------- delete
 
-/// True when a decoded smart rule names the device: an integer under a key containing "DeviceId", or an
-/// integer array under a key containing "DeviceIds" or "SensorIds".
+/// Integer keys inside a rule model that end in `Id` or `Ids` but do not name a device: the rule's own id and
+/// type, changesets, enum values and user groups. Everything else that ends in `Id`/`Ids` is treated as a device
+/// reference, because the parameter classes use dozens of names (`ThermostatId`, `PushButtonIds`, `BlindsIds`,
+/// `MastersIds`, `InputSensorsIds`, ...). A false positive only blocks a delete, which `--allow-referenced` lifts.
+const NON_DEVICE_ID_KEYS: &[&str] = &[
+    "Id",
+    "NonDeviceActionId",
+    "ReceiverGroupIds",
+    "ErrorCodeId",
+    "ErrorAreaId",
+    "ErrorSpecifierCodeId",
+    "SeverityId",
+    "OriginId",
+    "IconId",
+    "PlanId",
+    "CardId",
+];
+
+fn is_device_key(key: &str) -> bool {
+    (key.ends_with("Id") || key.ends_with("Ids"))
+        && !NON_DEVICE_ID_KEYS.contains(&key)
+        && ![
+            "TypeId",
+            "ChangesetId",
+            "TriggerId",
+            "TriggerIds",
+            "SmartRuleId",
+            "SmartRuleIds",
+        ]
+        .iter()
+        .any(|s| key.ends_with(s))
+        && ![
+            "GroupId",
+            "GroupIds",
+            "WeekPlanId",
+            "WeekPlanIds",
+            "DateRangeId",
+            "DateRangeIds",
+        ]
+        .iter()
+        .any(|s| key.ends_with(s))
+}
+
+fn has_int(value: &Value, id: i64) -> bool {
+    match value {
+        Value::Array(items) => items.iter().any(|v| has_int(v, id)),
+        Value::Object(map) => map.values().any(|v| has_int(v, id)),
+        v => v.as_i64() == Some(id),
+    }
+}
+
+/// True when a decoded smart rule names the device: an integer (or integer list) under a device id key (see
+/// `is_device_key`), or any integer inside `TriggerInputs`, which the Core fills with the ids of the devices whose
+/// values trigger the rule (`ValueLogType -> [device ids]`).
 fn refers_to(value: &Value, id: i64) -> bool {
     match value {
         Value::Object(map) => map.iter().any(|(key, v)| {
             let hit = match v {
-                Value::Array(items) if key.contains("DeviceIds") || key.contains("SensorIds") => {
+                _ if key == "TriggerInputs" => has_int(v, id),
+                Value::Array(items) if is_device_key(key) => {
                     items.iter().any(|i| i.as_i64() == Some(id))
                 }
-                _ if key.contains("DeviceId") => v.as_i64() == Some(id),
+                Value::Number(_) if is_device_key(key) => v.as_i64() == Some(id),
                 _ => false,
             };
             hit || refers_to(v, id)
@@ -514,6 +570,7 @@ async fn add_virtual(ctx: &Ctx, args: AddVirtualArgs) -> Result<Value> {
         "addVirtualDevice"
     };
     let (name, model) = (args.name.clone(), args.model.clone());
+    let allow_duplicate_name = args.allow_duplicate_name;
     let mut diff_out: Vec<Value> = vec![];
     let sink = &mut diff_out;
     let mut spec = WriteSpec::new(
@@ -521,11 +578,20 @@ async fn add_virtual(ctx: &Ctx, args: AddVirtualArgs) -> Result<Value> {
         "MessageAddDeviceRequest",
         args.flags,
         move |snapshot| {
-            if snapshot
+            if let Some(d) = snapshot
                 .devices
                 .iter()
-                .any(|d| d["Name"].as_str() == Some(name.as_str()))
+                .find(|d| d["Name"].as_str() == Some(name.as_str()))
             {
+                // A retry after `write_sent: "unknown"` would otherwise create a second device.
+                if !allow_duplicate_name {
+                    return Err(CliError::new(
+                        "already_exist",
+                        format!("a device named \"{name}\" exists (id {}): pick another name, or pass --allow-duplicate-name", d["ID"]),
+                    )
+                    .with_exit(EXIT_GATE)
+                    .with_details(json!({"existing_id": d["ID"]})));
+                }
                 ctx.warn(format!(
                     "another device is already named \"{name}\": addressing it by name becomes ambiguous"
                 ));
@@ -589,6 +655,55 @@ mod tests {
         assert!(refers_to(&rule, 7) && refers_to(&rule, 9) && refers_to(&rule, 3));
         assert!(!refers_to(&rule, 8));
         assert!(!refers_to(&json!({"Value": 7}), 7));
+    }
+
+    #[test]
+    fn rule_references_cover_every_parameter_class_name() {
+        // names used by real rules on a live Core that the first version of the guard missed
+        for key in [
+            "ThermostatId",
+            "ThermostatsIds",
+            "ControllerThermostatId",
+            "PushButtonIds",
+            "PushButtonId",
+            "UpButtonIds",
+            "DownButtonIds",
+            "PushUpButtonIds",
+            "PushDownButtonIds",
+            "BlindIds",
+            "BlindsIds",
+            "DimmerIds",
+            "MasterDimmerId",
+            "MastersIds",
+            "SlavesIds",
+            "InputSensorsIds",
+            "SensorsIds",
+            "TemperatureSensorId",
+            "TemperatureSensorsIds",
+            "BrightnessSensorId",
+            "WindSpeedSensorId",
+            "MultiValueSwitchId",
+            "HeatingCoolingModeId",
+            "SwitchId",
+            "SwitchIds",
+            "ReedContactIds",
+            "LightIds",
+        ] {
+            let one = json!({"TriggerParameters": {key: 41}});
+            let many = json!({"TriggerParameters": {key: [5, 41]}});
+            assert!(refers_to(&one, 41) || refers_to(&many, 41), "{key}");
+            assert!(refers_to(&many, 41), "{key} as a list");
+        }
+        // TriggerInputs: ValueLogType -> device ids, also inside aggregated connections
+        let inputs = json!({"TriggerInputs": {"$type": "IftttConnection",
+            "InstantConnections": {"Connections": {"52": [321]}},
+            "AggregatedConnections": {"Connections": {"60": {"{\"Period\":10}": [426]}}}}});
+        assert!(refers_to(&inputs, 321) && refers_to(&inputs, 426));
+        assert!(!refers_to(&inputs, 52) && !refers_to(&inputs, 60) && !refers_to(&inputs, 10));
+        // not device references: the rule's own id and type, changesets, enums, user groups
+        let other = json!({"Id": 41, "TriggerTypeId": 41, "ChangesetId": 41, "TriggerParameters": {
+            "LimitingConditionTypeId": 41, "NonDeviceActionId": 41, "ReceiverGroupIds": [41], "Value": 41}});
+        assert!(!refers_to(&other, 41));
     }
 
     #[test]

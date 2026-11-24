@@ -186,5 +186,10 @@ async fn raw_write(
     spec.settle = Some(wait.max(ctx.settle));
     let mut doc = run_write(ctx, spec).await?;
     doc["delta"] = count_delta(&doc["state_before"], &doc["state"]);
+    // Nothing was verified: report null, so an agent that tests `verify.ok == true` does not take a raw write as
+    // confirmed. `delta` is the only evidence of what changed.
+    if doc["dry_run"] != json!(true) {
+        doc["verify"]["ok"] = Value::Null;
+    }
     Ok(doc)
 }

@@ -8,7 +8,8 @@
 //! * DateTime: ISO string `YYYY-MM-DDTHH:MM:SS.fffffff` (7 digits = .NET ticks), naive/UTC, bcl.proto DateTime
 //!   as a TimeSpan since 1970-01-01. Min/Max map to year 0001 / 9999 strings.
 //! * TimeSpan: seconds as a JSON float (exact value is ticks / 1e7).
-//! * `Dictionary<K, V>`: JSON object. Keys are the JSON text of the key (`"5"`, `"true"`, a Guid string). A list
+//! * `Dictionary<K, V>`: JSON object. Keys are the JSON text of the key (`"5"`, `"true"`, a Guid string, or the
+//!   compact JSON object of a message key such as `DeviceValueAggregation`). A list
 //!   or map value is written as repeated field 2 inside the entry. A message value missing from the wire is null.
 //! * Lists, arrays, HashSet: JSON array. Non-packed on write, except packed members; an empty packed list is
 //!   written as a zero-length field (a live Core sends that). Both forms are accepted on read.
@@ -553,6 +554,8 @@ fn key_string(k: &Value) -> Result<String> {
     match k {
         Value::String(s) => Ok(s.clone()),
         Value::Number(_) | Value::Bool(_) | Value::Null => Ok(k.to_string()),
+        // a message key (e.g. DeviceValueAggregation) is its decoded object as compact JSON text
+        Value::Object(_) => Ok(k.to_string()),
         _ => err("map key is not a scalar"),
     }
 }
@@ -816,6 +819,12 @@ impl<'a> Codec<'a> {
                 .map(float_value)
                 .or_else(|_| as_float(&Value::String(k.into())).map(float_value)),
             "string" | "Guid" | "DateTime" | "TimeSpan" | "byte[]" => Ok(Value::String(k.into())),
+            _ if self.cat.resolve(base).is_some() => match serde_json::from_str::<Value>(k) {
+                Ok(obj @ Value::Object(_)) => Ok(obj),
+                _ => err(format!(
+                    "map key of type {base} must be the JSON text of an object, got {k:?}"
+                )),
+            },
             _ => err(format!("unsupported map key type {base}")),
         }
     }

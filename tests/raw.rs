@@ -171,7 +171,8 @@ fn write_classes_need_allow_write() {
         d["delta"],
         json!({"devices": 1, "rules_live": 0, "rules_total": 0, "interfaces": 0, "dashboards": 0})
     );
-    assert_eq!(d["verify"]["ok"], true);
+    // a raw write is never verified: ok is null, not true
+    assert!(d["verify"]["ok"].is_null(), "{d}");
     assert_eq!(
         d["broadcasts"],
         json!(["MessageDeviceListUpdatedBroadcast"])

@@ -617,3 +617,30 @@ fn encode_refuses_lossy_or_inconsistent_input() {
     assert!(e.contains("$errors"), "{e}");
     assert!(codec::encode("LocationInfo", &json!({"$errors": []})).is_ok());
 }
+
+#[test]
+fn message_typed_map_keys_decode_and_round_trip() {
+    // IftttAggregatedConnection.Connections is Dictionary<ValueLogType, Dictionary<DeviceValueAggregation, List<int>>>.
+    // DeviceValueAggregation is a class, so the inner key is a message. Bytes as a live Core sends them in the
+    // TriggerInputs of a smart rule: ValueLogType 60 -> {StatisticsFunction 3, PeriodType 2, Period 10} -> [426].
+    let cat = catalog::catalog();
+    let c = Codec::new(cat);
+    let raw = unhex("0a0f083c120b0a0608031002180a10aa03");
+    let v = c.decode("IftttAggregatedConnection", &raw).unwrap();
+    assert!(v.get("$errors").is_none(), "{v}");
+    let inner = &v["Connections"]["60"];
+    let (key, ids) = inner.as_object().unwrap().iter().next().unwrap();
+    let key: Value = serde_json::from_str(key).unwrap();
+    assert_eq!(key["StatisticsFunction"], json!(3));
+    assert_eq!(key["PeriodType"], json!(2));
+    assert_eq!(key["Period"], json!(10));
+    assert_eq!(ids, &json!([426]));
+    assert_eq!(
+        hex(&c.encode("IftttAggregatedConnection", &v).unwrap()),
+        hex(&raw)
+    );
+
+    // a key that is not the JSON text of an object is refused on encode
+    let bad = json!({"Connections": {"60": {"3": [426]}}});
+    assert!(c.encode("IftttAggregatedConnection", &bad).is_err());
+}

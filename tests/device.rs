@@ -646,19 +646,26 @@ fn add_virtual_unknown_model_needs_an_interface() {
 }
 
 #[test]
-fn add_virtual_warns_about_a_duplicate_name() {
+fn add_virtual_refuses_a_duplicate_name_unless_allowed() {
     let core = FakeCore::start();
-    let (code, doc) = run_cli(
-        &core,
-        &[
-            "device",
-            "add-virtual",
-            "--model",
-            "VirtualVariableGeneral",
-            "--name",
-            "Test variable",
-        ],
-    );
+    let args = [
+        "device",
+        "add-virtual",
+        "--model",
+        "VirtualVariableGeneral",
+        "--name",
+        "Test variable",
+    ];
+    // a retry after `write_sent: "unknown"` must not create a second device
+    let (code, doc) = run_cli(&core, &args);
+    assert_eq!(code, 7, "{doc}");
+    assert_eq!(error(&doc)["code"], "already_exist");
+    assert!(error(&doc)["details"]["existing_id"].is_number(), "{doc}");
+    assert!(core.writes().is_empty(), "{:?}", core.writes());
+
+    let mut allowed = args.to_vec();
+    allowed.push("--allow-duplicate-name");
+    let (code, doc) = run_cli(&core, &allowed);
     assert_eq!(code, 0, "{doc}");
     assert!(doc["warnings"][0].as_str().unwrap().contains("ambiguous"));
 }

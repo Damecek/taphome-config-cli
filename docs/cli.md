@@ -135,14 +135,14 @@ Without flags it prints a summary: `core_version`, `protocol`, `counts` and `int
 | `device set-props <DEVICE> --prop K=V... [--props-file F] [--allow-new-key]` | write | `updateMultipleDevicesProperties`, `MessageUpdateMultipleDevicesPropertiesRequest` | write result, `diff`, `changed: false` when nothing differs |
 | `device rename <DEVICE> <NAME>` | write | the same message, with `Name` only | as above |
 | `device delete <DEVICE> [--force] [--allow-referenced]` | write | `deleteDevice`, `MessageDeleteDeviceRequest` | write result, `diff` |
-| `device add-virtual --model M --name N [--interface I] [--prop K=V]...` | write | `addVirtualVariable` (model `VirtualVariableGeneral`) or `addVirtualDevice`, `MessageAddDeviceRequest` | write result, `diff`, `device` with `id`, `serial` and `property_keys` |
+| `device add-virtual --model M --name N [--interface I] [--prop K=V]... [--allow-duplicate-name]` | write | `addVirtualVariable` (model `VirtualVariableGeneral`) or `addVirtualDevice`, `MessageAddDeviceRequest` | write result, `diff`, `device` with `id`, `serial` and `property_keys` |
 
 Details:
 
 - `--model GLOB` in `device list` and `io values` is case-insensitive, `*` matches any text and `?` matches one character. `--name` is a case-insensitive substring. `--parent` matches `HardwareParentId`.
 - `set-props` takes `K=V` split at the first `=`. `--props-file` is a JSON object of string values, and `--prop` wins over the file. `Name` is a top-level field and every other key lives in `DeviceProperties`. A key that the device does not have is refused as a typo guard, with close key names in the message, unless `--allow-new-key` is given. Values that equal the current ones are skipped with a warning.
-- `delete` refuses a device that has children (other devices with it as `HardwareParentId`) and tells you the ids. Delete children first. `--force` sends `ForceDelete` and is an unverified variant. Live smart rules that mention the device block the delete with `invalid_input` and `details.rules` (ids and names) unless you pass `--allow-referenced`, which keeps the delete and adds a warning that lists them. The Core reuses ids, so the check compares the serial number to decide that the device is gone.
-- `add-virtual` knows the interface for these models: `VirtualVariableGeneral` (Variable), `VirtualSwitch` (Switch), `VirtualThermostatDummy` (Thermostat), `VirtualAnalogOutput` (Dimmer), `VirtualPushButton` (PushButton), `VirtualReedContact` (ReedContact) and `VirtualMultiValueSwitch` (MultiValueSwitch). Other models need `--interface`. A warning appears when the name is already taken.
+- `delete` refuses a device that has children (other devices with it as `HardwareParentId`) and tells you the ids. Delete children first. `--force` sends `ForceDelete` and is an unverified variant. Live smart rules that mention the device block the delete. A rule mentions it when its id appears under any key ending in `Id` or `Ids` (`ThermostatId`, `PushButtonIds`, `BlindsIds`, `MastersIds`, `InputSensorsIds`, ...; the rule's own id, types, changesets, enum values and user groups excluded) or anywhere in `TriggerInputs`. Such rules block the delete with `invalid_input` and `details.rules` (ids and names) unless you pass `--allow-referenced`, which keeps the delete and adds a warning that lists them. The Core reuses ids, so the check compares the serial number to decide that the device is gone.
+- `add-virtual` knows the interface for these models: `VirtualVariableGeneral` (Variable), `VirtualSwitch` (Switch), `VirtualThermostatDummy` (Thermostat), `VirtualAnalogOutput` (Dimmer), `VirtualPushButton` (PushButton), `VirtualReedContact` (ReedContact) and `VirtualMultiValueSwitch` (MultiValueSwitch). Other models need `--interface`. A name that another device already has is refused with `already_exist` (exit 7, `details.existing_id`), so a retry after `write_sent: "unknown"` cannot create a second device. `--allow-duplicate-name` creates it anyway, with a warning. `pp import` follows the same rule for every module and device name in the file, and refuses a config that uses one `Id` twice.
 
 ### pp
 
@@ -199,6 +199,8 @@ Details:
 | `raw call <MessageClass> [--json J \| --json-file F] [--allow-write] [--allow-unverified] [--dry-run] [--wait-broadcasts S]` | depends on the class | Sends one request. |
 
 `raw call` rules:
+
+- A real raw write reports `verify.ok: null`: there is no expected state to check, `delta` is the only evidence.
 
 1. The class must be a known request class, else `invalid_input`.
 2. `--dry-run` is offline. It prints `operation`, `verified`, `kind`, `message` (`class`, `fields`), `diff: null`, `frame_hex` and `frame_redacted`, and sends nothing, not even a sync. The frame and `message.fields` are built from the redacted fields.
