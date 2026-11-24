@@ -6,7 +6,7 @@ use crate::core::{
     diff_entry, open_session, request, run_write, Check, Ctx, Snapshot, WriteFlags, WritePlan,
     WriteSpec,
 };
-use crate::errors::CliError;
+use crate::errors::{CliError, EXIT_GATE};
 use crate::output::{mask_value, REDACTED};
 use clap::{ArgGroup, Args, Subcommand, ValueEnum};
 use serde_json::{json, Map, Value};
@@ -55,6 +55,9 @@ pub struct ImportArgs {
     /// Interface (id or exact name). Default: the only PacketParserCCU interface
     #[arg(long, value_name = "ID")]
     ccu: Option<String>,
+    /// Import even when a device with one of the new names already exists
+    #[arg(long)]
+    allow_duplicate_name: bool,
     #[command(flatten)]
     flags: WriteFlags,
 }
@@ -482,20 +485,28 @@ fn normalize_device(
     Ok(Value::Object(out))
 }
 
-fn explicit_ids(obj: &Map<String, Value>, used: &mut BTreeSet<i64>) {
-    let mut note = |d: &Value| {
+/// Collects the explicit non-zero ids. A repeated id is refused: the Core's mapping of a duplicate placeholder is
+/// undefined, a child's parent becomes ambiguous and the read-back would pair the wrong objects.
+fn explicit_ids(obj: &Map<String, Value>, used: &mut BTreeSet<i64>) -> Result<(), CliError> {
+    let mut note = |d: &Value| -> Result<(), CliError> {
         if let Some(id) = d["Id"].as_i64().filter(|i| *i != 0) {
-            used.insert(id);
+            if !used.insert(id) {
+                return Err(bad(format!(
+                    "Id {id} is used by more than one module or device"
+                )));
+            }
         }
+        Ok(())
     };
     for key in ["Modules", "Devices"] {
         for d in obj.get(key).and_then(Value::as_array).into_iter().flatten() {
-            note(d);
+            note(d)?;
             for c in d["Devices"].as_array().into_iter().flatten() {
-                note(c);
+                note(c)?;
             }
         }
     }
+    Ok(())
 }
 
 /// Validates the shape and fills in what the confirmed payload has: placeholder ids, `HardwareParentId` 0,
@@ -515,7 +526,7 @@ fn normalize(config: &Value) -> Result<Value, CliError> {
         return Err(bad("the config has no Modules and no Devices"));
     }
     let mut used = BTreeSet::new();
-    explicit_ids(obj, &mut used);
+    explicit_ids(obj, &mut used)?;
     let mut ids = Placeholders { used, last: 0 };
     let mut out = Map::new();
     out.insert("ProtocolVersion".into(), json!(protocol));
@@ -1120,6 +1131,7 @@ async fn import(ctx: &Ctx, args: ImportArgs) -> Result<Value, CliError> {
         "addPacketParserModule"
     };
     let (ccu_flag, ccu_file) = (args.ccu.clone(), p.ccu_id);
+    let allow_duplicate_name = args.allow_duplicate_name;
     let mut spec = WriteSpec::new(
         operation,
         "MessageHttpApiConfigRequest",
@@ -1128,6 +1140,15 @@ async fn import(ctx: &Ctx, args: ImportArgs) -> Result<Value, CliError> {
             let ccu = pick_ccu(ctx, snapshot, ccu_flag.as_deref(), ccu_file)?;
             for name in &names {
                 if let Some(d) = snapshot.devices.iter().find(|d| d["Name"] == json!(name)) {
+                    // A retry after `write_sent: "unknown"` would otherwise import the module twice.
+                    if !allow_duplicate_name {
+                        return Err(CliError::new(
+                            "already_exist",
+                            format!("a device named \"{name}\" exists (id {}): rename it in the template, or pass --allow-duplicate-name", d["ID"]),
+                        )
+                        .with_exit(EXIT_GATE)
+                        .with_details(json!({"existing_id": d["ID"]})));
+                    }
                     ctx.warn(format!(
                         "a device named \"{name}\" already exists (id {})",
                         d["ID"]

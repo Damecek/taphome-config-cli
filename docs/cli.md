@@ -60,10 +60,10 @@ When the Core answered with an error, `core_error_code` is its numeric `ErrorCod
 | 4 | Connection or timeout | `connection_failed`, `timeout`, `core_not_ready`, `protocol_error` |
 | 5 | The Core rejected the request | the Core error names below, `not_handled` |
 | 6 | Object not found or ambiguous (local lookup) | `not_found`, `ambiguous` |
-| 7 | Refused by a CLI safety gate | `unverified_operation`, `write_not_allowed`, `roundtrip_mismatch`, and `already_exist` from `rule apply` |
+| 7 | Refused by a CLI safety gate | `unverified_operation`, `write_not_allowed`, `roundtrip_mismatch`, and `already_exist` from `rule apply`, `device add-virtual` and `pp import` |
 | 8 | Post-write verification failed | `verify_failed` |
 
-Three cases deviate from the table. `core_offline` from the cloud relay during the connect exits with 4. `unauthorized` with the message "the user has no remote access" exits with 3. `already_exist` from `rule apply` (a live rule with that name exists) exits with 7, while the same code from the Core exits with 5.
+Three cases deviate from the table. `core_offline` from the cloud relay during the connect exits with 4. `unauthorized` with the message "the user has no remote access" exits with 3. `already_exist` from `rule apply` (a live rule with that name exists), `device add-virtual` and `pp import` (a device with that name exists) exits with 7, while the same code from the Core exits with 5.
 
 ### Error codes
 
@@ -135,14 +135,14 @@ Without flags it prints a summary: `core_version`, `protocol`, `counts` and `int
 | `device set-props <DEVICE> --prop K=V... [--props-file F] [--allow-new-key]` | write | `updateMultipleDevicesProperties`, `MessageUpdateMultipleDevicesPropertiesRequest` | write result, `diff`, `changed: false` when nothing differs |
 | `device rename <DEVICE> <NAME>` | write | the same message, with `Name` only | as above |
 | `device delete <DEVICE> [--force] [--allow-referenced]` | write | `deleteDevice`, `MessageDeleteDeviceRequest` | write result, `diff` |
-| `device add-virtual --model M --name N [--interface I] [--prop K=V]...` | write | `addVirtualVariable` (model `VirtualVariableGeneral`) or `addVirtualDevice`, `MessageAddDeviceRequest` | write result, `diff`, `device` with `id`, `serial` and `property_keys` |
+| `device add-virtual --model M --name N [--interface I] [--prop K=V]... [--allow-duplicate-name]` | write | `addVirtualVariable` (model `VirtualVariableGeneral`) or `addVirtualDevice`, `MessageAddDeviceRequest` | write result, `diff`, `device` with `id`, `serial` and `property_keys` |
 
 Details:
 
 - `--model GLOB` in `device list` and `io values` is case-insensitive, `*` matches any text and `?` matches one character. `--name` is a case-insensitive substring. `--parent` matches `HardwareParentId`.
 - `set-props` takes `K=V` split at the first `=`. `--props-file` is a JSON object of string values, and `--prop` wins over the file. `Name` is a top-level field and every other key lives in `DeviceProperties`. A key that the device does not have is refused as a typo guard, with close key names in the message, unless `--allow-new-key` is given. Values that equal the current ones are skipped with a warning.
-- `delete` refuses a device that has children (other devices with it as `HardwareParentId`) and tells you the ids. Delete children first. `--force` sends `ForceDelete` and is an unverified variant. Live smart rules that mention the device block the delete with `invalid_input` and `details.rules` (ids and names) unless you pass `--allow-referenced`, which keeps the delete and adds a warning that lists them. The Core reuses ids, so the check compares the serial number to decide that the device is gone.
-- `add-virtual` knows the interface for these models: `VirtualVariableGeneral` (Variable), `VirtualSwitch` (Switch), `VirtualThermostatDummy` (Thermostat), `VirtualAnalogOutput` (Dimmer), `VirtualPushButton` (PushButton), `VirtualReedContact` (ReedContact) and `VirtualMultiValueSwitch` (MultiValueSwitch). Other models need `--interface`. A warning appears when the name is already taken.
+- `delete` refuses a device that has children (other devices with it as `HardwareParentId`) and tells you the ids. Delete children first. `--force` sends `ForceDelete` and is an unverified variant. Live smart rules that mention the device block the delete. A rule mentions it when its id appears under any key ending in `Id` or `Ids` (`ThermostatId`, `PushButtonIds`, `BlindsIds`, `MastersIds`, `InputSensorsIds`, ...; the rule's own id, types, changesets, enum values and user groups excluded) or anywhere in `TriggerInputs`. Such rules block the delete with `invalid_input` and `details.rules` (ids and names) unless you pass `--allow-referenced`, which keeps the delete and adds a warning that lists them. The Core reuses ids, so the check compares the serial number to decide that the device is gone.
+- `add-virtual` knows the interface for these models: `VirtualVariableGeneral` (Variable), `VirtualSwitch` (Switch), `VirtualThermostatDummy` (Thermostat), `VirtualAnalogOutput` (Dimmer), `VirtualPushButton` (PushButton), `VirtualReedContact` (ReedContact) and `VirtualMultiValueSwitch` (MultiValueSwitch). Other models need `--interface`. A name that another device already has is refused with `already_exist` (exit 7, `details.existing_id`), so a retry after `write_sent: "unknown"` cannot create a second device. `--allow-duplicate-name` creates it anyway, with a warning. `pp import` follows the same rule for every module and device name in the file, and refuses a config that uses one `Id` twice.
 
 ### pp
 
@@ -205,7 +205,7 @@ Details:
 3. A write or action class needs `--allow-write`, else `write_not_allowed`. A class that is not in the registry counts as a write.
 4. A class with `verified: false`, or one that is not in the registry, needs `--allow-unverified`, else `unverified_operation`. So a class without a registry entry needs both switches.
 5. A read or subscribe class prints `class`, `response` and `broadcasts` (counts per class collected for `--wait-broadcasts` seconds, up to 3600).
-6. A write goes through the [write flow](#the-write-flow). Because there is no expected state, its single check always passes. Compare `delta` (the signed change of each count between `state_before` and `state`).
+6. A write goes through the [write flow](#the-write-flow). There is no expected state to check, so a real raw write reports `verify.ok: null`. Compare `delta` (the signed change of each count between `state_before` and `state`).
 
 `--json` and `--json-file` hold the request fields as one JSON object. Field names come from `data/catalog.json` and encoding is strict, so an unknown name is an error.
 

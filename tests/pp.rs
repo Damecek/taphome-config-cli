@@ -531,7 +531,7 @@ fn ccu_selection() {
 }
 
 #[test]
-fn warns_about_an_existing_device_with_the_same_name() {
+fn refuses_an_existing_device_name_unless_allowed() {
     let core = FakeCore::start();
     let file = temp_file(
         "dup.json",
@@ -539,6 +539,12 @@ fn warns_about_an_existing_device_with_the_same_name() {
             "DeviceProperties": {"IpAddress": "192.0.2.7"}}]}"#,
     );
     let (code, doc) = run_cli(&core, &["pp", "import", &file, "--dry-run"]);
+    assert_eq!(code, 7, "{doc}");
+    assert_eq!(error(&doc)["code"], "already_exist");
+    let (code, doc) = run_cli(
+        &core,
+        &["pp", "import", &file, "--dry-run", "--allow-duplicate-name"],
+    );
     assert_eq!(code, 0, "{doc}");
     let warning = doc["warnings"][0].as_str().unwrap();
     assert!(
@@ -1084,4 +1090,40 @@ fn last_run_error_names_the_real_flag() {
         message.contains("--object ccu") && !message.contains("--object-kind"),
         "{message}"
     );
+}
+
+#[test]
+fn import_twice_is_refused_by_name() {
+    let core = FakeCore::start();
+    let (code, doc) = run_import(&core, &fixture("lamp.xml"), &lamp(&[]));
+    assert_eq!(code, 0, "{doc}");
+    core.clear_requests();
+    // the same template again, e.g. a retry after `write_sent: "unknown"`
+    let (code, doc) = run_import(&core, &fixture("lamp.xml"), &lamp(&[]));
+    assert_eq!(code, 7, "{doc}");
+    assert_eq!(error(&doc)["code"], "already_exist");
+    assert!(core.writes().is_empty(), "{:?}", core.writes());
+    let (code, doc) = run_import(
+        &core,
+        &fixture("lamp.xml"),
+        &lamp(&["--allow-duplicate-name"]),
+    );
+    assert_eq!(code, 0, "{doc}");
+}
+
+#[test]
+fn duplicate_placeholder_ids_are_refused_offline() {
+    let core = FakeCore::start();
+    let file = temp_file(
+        "dup-ids.json",
+        r#"{"Modules": [{"Id": -1, "Name": "A", "Model": "PacketParserModuleHttp",
+              "Devices": [{"Id": -1, "Name": "A var", "Model": "PacketParserVariable"}]}]}"#,
+    );
+    let (code, doc) = run_cli(&core, &["pp", "inspect", &file]);
+    assert_ne!(code, 0, "{doc}");
+    assert!(
+        error(&doc)["message"].as_str().unwrap().contains("Id -1"),
+        "{doc}"
+    );
+    assert!(core.requests().is_empty());
 }

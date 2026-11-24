@@ -8,7 +8,8 @@
 //! * DateTime: ISO string `YYYY-MM-DDTHH:MM:SS.fffffff` (7 digits = .NET ticks), naive/UTC, bcl.proto DateTime
 //!   as a TimeSpan since 1970-01-01. Min/Max map to year 0001 / 9999 strings.
 //! * TimeSpan: seconds as a JSON float (exact value is ticks / 1e7).
-//! * `Dictionary<K, V>`: JSON object. Keys are the JSON text of the key (`"5"`, `"true"`, a Guid string). A list
+//! * `Dictionary<K, V>`: JSON object. Keys are the JSON text of the key (`"5"`, `"true"`, a Guid string, or the
+//!   compact JSON object of a message key such as `DeviceValueAggregation`). A list
 //!   or map value is written as repeated field 2 inside the entry. A message value missing from the wire is null.
 //! * Lists, arrays, HashSet: JSON array. Non-packed on write, except packed members; an empty packed list is
 //!   written as a zero-length field (a live Core sends that). Both forms are accepted on read.
@@ -21,7 +22,8 @@
 //! Deliberate differences from the Python codec:
 //!
 //! * JSON has no NaN or infinity. A non-finite double, float or TimeSpan is the string `"NaN"`, `"Infinity"` or
-//!   `"-Infinity"` (TimeSpan.MaxValue / MinValue are `"Infinity"` / `"-Infinity"`). Encode accepts those strings.
+//!   `"-Infinity"` (TimeSpan.MaxValue / MinValue are `"Infinity"` / `"-Infinity"`). Encode accepts those strings
+//!   and writes `"NaN"` with the .NET bits (sign bit set), as the Core sends it.
 //! * Encode is strict: a key that is not a member of the type chain (other than `$type`, `$unknown`, `$errors`)
 //!   is an error, and values must have the member's JSON type (integer, bool, number, string, object, array).
 //!   An integer outside its declared type's range (`int` i32, `short` i16, `sbyte` i8, `long` i64, `byte` u8,
@@ -476,10 +478,15 @@ fn float_value(f: f64) -> Value {
     }
 }
 
+/// .NET `double.NaN` has the sign bit set (0xFFF8...), unlike Rust's `f64::NAN` (0x7FF8...). The Core sends it
+/// that way, so encoding "NaN" with these bits keeps a stored rule byte-exact.
+const DOTNET_NAN: f64 = f64::from_bits(0xFFF8_0000_0000_0000);
+const DOTNET_NAN_F32: f32 = f32::from_bits(0xFFC0_0000);
+
 fn as_float(v: &Value) -> Result<f64> {
     match v {
-        Value::Number(n) => Ok(n.as_f64().unwrap_or(f64::NAN)),
-        Value::String(s) if s == "NaN" => Ok(f64::NAN),
+        Value::Number(n) => Ok(n.as_f64().unwrap_or(DOTNET_NAN)),
+        Value::String(s) if s == "NaN" => Ok(DOTNET_NAN),
         Value::String(s) if s == "Infinity" => Ok(f64::INFINITY),
         Value::String(s) if s == "-Infinity" => Ok(f64::NEG_INFINITY),
         _ => err(format!("expected a number, got {v}")),
@@ -553,6 +560,8 @@ fn key_string(k: &Value) -> Result<String> {
     match k {
         Value::String(s) => Ok(s.clone()),
         Value::Number(_) | Value::Bool(_) | Value::Null => Ok(k.to_string()),
+        // a message key (e.g. DeviceValueAggregation) is its decoded object as compact JSON text
+        Value::Object(_) => Ok(k.to_string()),
         _ => err("map key is not a scalar"),
     }
 }
@@ -816,6 +825,12 @@ impl<'a> Codec<'a> {
                 .map(float_value)
                 .or_else(|_| as_float(&Value::String(k.into())).map(float_value)),
             "string" | "Guid" | "DateTime" | "TimeSpan" | "byte[]" => Ok(Value::String(k.into())),
+            _ if self.cat.resolve(base).is_some() => match serde_json::from_str::<Value>(k) {
+                Ok(obj @ Value::Object(_)) => Ok(obj),
+                _ => err(format!(
+                    "map key of type {base} must be the JSON text of an object, got {k:?}"
+                )),
+            },
             _ => err(format!("unsupported map key type {base}")),
         }
     }
@@ -833,7 +848,9 @@ impl<'a> Codec<'a> {
             return Ok(());
         }
         if ts == "float" {
-            out.extend_from_slice(&(as_float(v)? as f32).to_le_bytes());
+            let f = as_float(v)?;
+            let f = if f.is_nan() { DOTNET_NAN_F32 } else { f as f32 };
+            out.extend_from_slice(&f.to_le_bytes());
             return Ok(());
         }
         if ts == "bool" {

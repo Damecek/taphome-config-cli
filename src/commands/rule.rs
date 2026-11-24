@@ -247,6 +247,12 @@ fn read_model(file: &str) -> Result<Map<String, Value>, CliError> {
             .map_err(|e| CliError::invalid_input(format!("cannot read {file}: {e}")))?
     };
     match serde_json::from_str::<Value>(&text) {
+        // the whole output of `rule get` instead of its `data.model`
+        Ok(Value::Object(map)) if map.contains_key("data") || map.contains_key("model") => {
+            Err(CliError::invalid_input(
+                "the file holds the output of `rule get`, not a TriggerModel: use `taphome rule get <RULE> | jq .data.model`",
+            ))
+        }
         Ok(Value::Object(map)) => Ok(map),
         Ok(_) => Err(CliError::invalid_input(
             "the file must hold one TriggerModel JSON object",
@@ -258,7 +264,9 @@ fn read_model(file: &str) -> Result<Map<String, Value>, CliError> {
 }
 
 fn has_params_type(model: &Map<String, Value>) -> bool {
-    model["TriggerParameters"]["$type"].is_string()
+    model
+        .get("TriggerParameters")
+        .is_some_and(|p| p["$type"].is_string())
 }
 
 /// `TriggerParameters."$type"` names the concrete class and no table maps type ids to classes.
@@ -412,7 +420,7 @@ async fn apply(ctx: &Ctx, args: ApplyArgs) -> Result<Value, CliError> {
         encode_check(&Value::Object(model.clone()))?;
     }
     if id != 0 {
-        let model_type = model["TriggerTypeId"].as_i64();
+        let model_type = model.get("TriggerTypeId").and_then(Value::as_i64);
         let mut spec = WriteSpec::new("upsertSmartRules", UPSERT, args.flags, move |s| {
             plan_update(ctx, s, id, model)
         });
@@ -420,8 +428,8 @@ async fn apply(ctx: &Ctx, args: ApplyArgs) -> Result<Value, CliError> {
         spec.variant_verified = model_type == Some(FORMULA_TYPE);
         return finish(run_write(ctx, spec).await, id);
     }
-    let verified_variant = model["TriggerTypeId"].as_i64() == Some(FORMULA_TYPE)
-        && model["IsEnabled"].as_bool() != Some(true);
+    let verified_variant = model.get("TriggerTypeId").and_then(Value::as_i64) == Some(FORMULA_TYPE)
+        && model.get("IsEnabled").and_then(Value::as_bool) != Some(true);
     let created = Rc::new(Cell::new(None));
     let slot = created.clone();
     let mut spec = WriteSpec::new("upsertSmartRules", UPSERT, args.flags, move |s| {
