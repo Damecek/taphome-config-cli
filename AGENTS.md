@@ -1,6 +1,6 @@
 # Agent instructions
 
-Read `README.md` first. It defines step 1 (OpenAPI spec from the TapHome Android app) and step 2 (CLI for agents).
+Read `README.md` first. The project goals, step 1 (OpenAPI spec from the TapHome Android app) and step 2 (CLI for agents), are in `docs/project-brief.md`.
 
 - Reverse engineering: use the REA MCP server (`.mcp.json`) and the `reverse-engineer-anything` skill.
 - Keep APKs, decompiled sources and traffic captures in `work/` (git-ignored). Never commit TapHome code, binaries or captures that contain credentials or tokens.

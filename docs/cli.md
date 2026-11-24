@@ -327,6 +327,8 @@ An update applies the file over the stored model. Keys missing from the file kee
 | `TAPHOME_USER` | run time | User name. Stored lower-case. |
 | `TAPHOME_PASSWORD` | run time | Password. Needed for login. |
 | `TAPHOME_HOST_FILE`, `TAPHOME_USER_FILE`, `TAPHOME_PASSWORD_FILE` | run time | A file with the value (surrounding whitespace is trimmed). Used when the plain variable is unset or empty. An unreadable file is `missing_config`. |
+| `TAPHOME_CLOUD_EMAIL`, `TAPHOME_CLOUD_PASSWORD` | run time | TapHome account for remote access through the cloud tunnel. Setting the e-mail switches the CLI to the cloud. Setting it together with `TAPHOME_HOST` is `missing_config`. |
+| `TAPHOME_LOCATION` | run time | Name or id of the location. Needed only when the cloud account has several. |
 | `TAPHOME_CONFIG_DIR` | run time and build time | Directory for the session, the device id and the salt file. |
 | `TAPHOME_PASSWORD_SALT` | build time and run time | The salt. At run time it overrides the built-in value. There is no `_FILE` variant. |
 | `TAPHOME_REQUIRE_SALT` | build time | `1` makes a build without a salt fail. |

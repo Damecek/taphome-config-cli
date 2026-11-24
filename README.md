@@ -1,125 +1,166 @@
 # taphome-config-cli
 
-Lets AI agents configure a TapHome smart home without a person copying templates into the TapHome app by hand.
+[![CI](https://github.com/Damecek/taphome-config-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Damecek/taphome-config-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Damecek/taphome-config-cli)](https://github.com/Damecek/taphome-config-cli/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-The goal is configuration and administration (devices, virtual devices, Packet Parser devices, automations, inputs and outputs), not day-to-day control of the home.
+`taphome` is a command line tool that lets an AI agent configure a [TapHome](https://taphome.com) smart home. The agent adds virtual devices, imports Packet Parser templates, edits their scripts and writes smart rules. Before this tool, a person did that by hand in the TapHome app.
 
-## Status
+TapHome has no public configuration API. This project reverse engineered the protocol of the TapHome Android app, documented it as an OpenAPI 3.1 specification and built the CLI on top of it.
 
-Step 1 is drafted and step 2 exists. Step 2 is `taphome`, a Rust command line tool in `src/` that reads and changes the configuration of a Core. It reads devices, values, logs, errors, Packet Parser scripts and smart rules, and writes virtual devices, Packet Parser imports and scripts, and smart rules. Every write is checked by a fresh sync afterwards. All reads and the main write paths ran against a real Core on 2026-11-17, and variants that did not are gated behind `--allow-unverified`. The lists of what is verified and what is not are in [`docs/verification.md`](docs/verification.md). Install and usage are in [Step 2](#step-2-cli-for-agents), the full reference is [`docs/cli.md`](docs/cli.md), and agents follow [`.agents/skills/taphome-cli/SKILL.md`](.agents/skills/taphome-cli/SKILL.md).
+## What you get
 
-The result of the reverse engineering is that TapHome has no REST API for configuration. The Android app talks to the TapHome Core over a WebSocket on the LAN (`ws://<core>/Core`, port 80) and exchanges binary protobuf messages. The Core stores the whole configuration. The cloud only holds accounts and a location list, and relays the same WebSocket when the phone is away from home.
+- **A CLI for agents.** Every command prints one JSON document with a stable error code and exit code, so an agent can act on the result without parsing text.
+- **Safe writes.** Every write has `--dry-run`, which prints the exact message and a diff and sends nothing. A real write checks its own result with a fresh read of the Core afterwards.
+- **LAN and remote access.** The CLI talks to the Core on the home network, or through the TapHome cloud tunnel when you are away.
+- **A documented protocol.** [`openapi/taphome-core.yaml`](openapi/taphome-core.yaml) describes 274 operations. Each one links to its evidence in the app code and says whether it was tested on a real Core.
+- **An agent skill.** [`.agents/skills/taphome-cli/SKILL.md`](.agents/skills/taphome-cli/SKILL.md) tells an agent how to work on a live home: read freely, dry-run every write, ask the owner before sending it.
 
-Login, the initial configuration sync, 48 read operations and the core write paths were confirmed against a real Core (software 2025.2.32396, protocol version 89). The confirmed writes are: create, rename and delete a virtual device, create a Packet Parser module with a device from a configuration JSON and change its script, create and delete a smart rule. The remaining operations are derived from the app code. Remote access through the cloud tunnel with a TapHome account was confirmed on 2026-11-18 for login and reads. [`docs/verification.md`](docs/verification.md) lists what is confirmed and what is not.
+Day-to-day control, such as switching a light or setting a temperature, is out of scope. The tool configures the home, it does not operate it.
 
-- [`openapi/taphome-core.yaml`](openapi/taphome-core.yaml): the OpenAPI 3.1 document. WebSocket messages appear as virtual `POST /Core/messages/{Class}` paths, broadcasts as `webhooks`.
-- [`docs/architecture.md`](docs/architecture.md): components, LAN and cloud paths, discovery, endpoints, Official and Next lines.
-- [`docs/auth.md`](docs/auth.md): authentication methods, login and session flow, password hash.
-- [`docs/protocol.md`](docs/protocol.md): wire format, acknowledgements, errors, how changes are committed, how the spec maps the protocol.
-- [`docs/configuration-model.md`](docs/configuration-model.md): interfaces, devices, I/O, Packet Parser, Modbus, smart rules, with message sequences.
-- [`docs/reverse-engineering.md`](docs/reverse-engineering.md): how to reproduce the analysis.
-- [`docs/verification.md`](docs/verification.md): what is confirmed against a real Core.
+## How it works
 
-## Step 1: OpenAPI specification from the Android app
+```mermaid
+flowchart LR
+    Agent[AI agent] -->|shell| CLI[taphome CLI]
+    CLI -->|"ws://core/Core<br/>binary protobuf"| Core[(TapHome Core)]
+    CLI -.->|"away from home:<br/>cloudapi + wss tunnel"| Cloud[TapHome cloud]
+    Cloud -.-> Core
+    Core --- Devices[Modules, devices,<br/>Packet Parser, smart rules]
+```
 
-Reverse engineer the TapHome Android app and write an OpenAPI 3.1 specification of the API it uses to read and change configuration, most likely on the TapHome Core over the LAN, possibly through the TapHome cloud.
+The Core stores the whole configuration. The app and the CLI exchange binary protobuf messages with it over a WebSocket on port 80. The cloud only holds accounts and the list of locations, and it relays the same WebSocket for remote access. Details are in [`docs/architecture.md`](docs/architecture.md) and [`docs/protocol.md`](docs/protocol.md).
 
-The specification must cover:
+## Example
 
-- authentication: every supported method, the login flow, token format and lifetime
-- transport: LAN versus cloud, base URLs, discovery, protocol (REST, WebSocket, binary)
-- create, read, update and delete for devices, virtual devices, Packet Parser devices and automations
-- request and response schemas, error formats, and how changes are saved or committed to the Core
+A typical change made by an agent: import a Packet Parser template, then check the new device.
 
-Every endpoint in the spec links to the evidence for it (decompiled class or captured traffic). Each endpoint is verified against a real Core before it is marked as confirmed.
+```sh
+taphome sync                                          # what the Core holds now
+taphome pp inspect lamp.xml --param ApiKey=...        # offline: what the import would create
+taphome pp import lamp.xml --param ApiKey=... --dry-run   # the exact message and a diff, nothing sent
+taphome pp import lamp.xml --param ApiKey=...         # sent, then verified with a fresh sync
+taphome io values "Demo lamp"                         # current value of the new device
+taphome io errors "Demo lamp"
+```
 
-Output: `openapi/taphome-core.yaml` and notes in `docs/`. The app uses no HTTP API for configuration, so the specification describes the WebSocket messages with OpenAPI conventions (see `docs/protocol.md`). Only the Core status page, the TapHomeApi routes and the cloud API are real HTTP endpoints.
+Every command answers with the same envelope. This is `pp inspect` on the test template in `tests/fixtures/pp/lamp.xml`, shortened:
 
-## Step 2: CLI for agents
+```json
+{
+  "ok": true,
+  "command": "pp inspect",
+  "data": {
+    "template": { "name": "Demo gateway", "revision": "1.2", "ccu_model": "PacketParserCCU" },
+    "parameters": [
+      { "id": "IpAddress", "label": "IP address", "value": "192.0.2.10" },
+      { "id": "ApiKey", "label": "API key", "value": null }
+    ],
+    "modules": [ { "name": "Demo gateway", "model": "PacketParserModuleHttp" } ]
+  },
+  "warnings": []
+}
+```
 
-`taphome` lets an agent list and inspect the configuration (devices, modules, inputs, outputs), add and change devices, virtual devices, Packet Parser devices and smart rules, and check inputs and outputs after a change. Every command prints one JSON document and supports `--dry-run` for writes. Credentials never go into the repository. Device control (switching a light, setting a temperature) is out of scope.
+Smart rules follow the same pattern: `taphome rule get "My rule" | jq .data.model > rule.json`, edit the file, then `taphome rule apply rule.json --dry-run`. Every command, flag and output field is in [`docs/cli.md`](docs/cli.md).
 
-### Install
+## Quick start
 
-Release binaries contain the TapHome password salt. The public source does not. A binary built from source cannot log in unless you give it the salt (see below). Where to find the salt is described in [`docs/auth.md`](docs/auth.md).
+### 1. Install
 
-On macOS and Linux, the install script downloads the binary for your platform from the latest release, checks its SHA-256 against the release's `SHA256SUMS` and installs it to `~/.local/bin`.
+On macOS and Linux, the script downloads the binary for your platform from the latest release, checks its SHA-256 and installs it to `~/.local/bin`.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Damecek/taphome-config-cli/main/install.sh | sh
 ```
 
-`TAPHOME_VERSION=v0.1.0` pins a release and `TAPHOME_INSTALL_DIR=/some/dir` changes the target directory. On Windows, download `taphome-x86_64-pc-windows-msvc.zip` from the [Releases page](https://github.com/Damecek/taphome-config-cli/releases). Releases carry five targets: macOS arm64 and x86_64, Linux musl arm64 and x86_64, and Windows x86_64.
+`TAPHOME_VERSION=v0.2.0` pins a release and `TAPHOME_INSTALL_DIR=/some/dir` changes the target directory. On Windows, download `taphome-x86_64-pc-windows-msvc.zip` from the [Releases page](https://github.com/Damecek/taphome-config-cli/releases). Releases are built for macOS (arm64, x86_64), Linux musl (arm64, x86_64) and Windows (x86_64).
 
-To build from source you need a Rust toolchain and the salt.
+### 2. Connect to your Core
 
-```sh
-TAPHOME_PASSWORD_SALT='...' cargo install --git https://github.com/Damecek/taphome-config-cli
-```
-
-Instead of the variable, a build reads the file `~/.config/taphome/salt`. A build with neither still works for every command except login, which fails with the error code `salt_missing`. Setting `TAPHOME_PASSWORD_SALT` at run time also works with such a build.
-
-### Configure and log in
-
-Set three environment variables, for example in the agent's environment or through its secret prompt.
-
-| Variable | Meaning |
-|---|---|
-| `TAPHOME_HOST` | Address of the Core, `<core-address>` or `<core-address>:<port>`. Port 80 is the default. |
-| `TAPHOME_USER` | The local user name. |
-| `TAPHOME_PASSWORD` | The password. |
-
-Each one also has a `_FILE` variant (`TAPHOME_PASSWORD_FILE=/path/to/file`) that names a file holding the value. The password is never accepted as a command line argument. The salt is the only other secret and also comes from the environment or the build, never from an argument.
+On the home network, use a local account of the Core.
 
 ```sh
+export TAPHOME_HOST=<core-address>
+export TAPHOME_USER=<user>
+export TAPHOME_PASSWORD=<password>
 taphome auth login
-taphome auth status
 ```
 
-### Remote access through the TapHome cloud
-
-Away from home, the CLI reaches the Core through the TapHome cloud tunnel. This needs a TapHome account (the e-mail you use in the TapHome app) that is a user of the Core, with admin rights for writes. A local account cannot connect remotely: the Core answers `RemoteAccessDisabled`, because TapHome no longer supports remote access for local users.
-
-| Variable | Meaning |
-|---|---|
-| `TAPHOME_CLOUD_EMAIL` | E-mail of the TapHome account. Setting it switches the CLI to the cloud. |
-| `TAPHOME_CLOUD_PASSWORD` | Its password. |
-| `TAPHOME_LOCATION` | Name or id of the location. Needed only when the account has several. |
-
-Leave `TAPHOME_HOST` unset in this mode. Setting both is refused with `missing_config`, so it is always clear which account writes. The `_FILE` variants work here too. `auth login` logs in to `cloudapi.taphome.com`, picks the location, logs in to the Core through `wss://tunnel1.taphome.com/MobileApp` and stores the session. All commands then work as on the LAN. The first command after a login can take up to about 10 seconds, because the relay needs a short pause between sockets of one session. Later commands take about a second.
-
-`auth login` stores the session in `~/.config/taphome/session.json` (on Windows `%APPDATA%\taphome\session.json`, `TAPHOME_CONFIG_DIR` overrides the directory). The directory is created with mode 700 and `session.json` and `device-id` are written with mode 600. Later commands reuse the session and log in again when the Core rejects it and the password is in the environment. Without the password, they fail with `session_invalid`. `taphome auth logout` deletes the file.
-
-### A short tour
+Away from home, use a TapHome account (the e-mail you use in the TapHome app). It must be a user of the Core, with admin rights for writes. Leave `TAPHOME_HOST` unset.
 
 ```sh
-taphome sync                                   # counts of devices, interfaces and rules
-taphome device list --model 'Virtual*'         # compact rows
-taphome pp inspect lamp.xml --param ApiKey=...  # offline: what an import would send
-taphome pp import lamp.xml --param ApiKey=... --dry-run
-taphome pp import lamp.xml --param ApiKey=...   # sends it, then verifies with a fresh sync
-taphome rule get "My rule" | jq .data.model > rule.json   # edit rule.json
-taphome rule apply rule.json --dry-run
-taphome io values <device-id>                   # current values after the change
-taphome io errors <device-id>
+export TAPHOME_CLOUD_EMAIL=<e-mail>
+export TAPHOME_CLOUD_PASSWORD=<password>
+export TAPHOME_LOCATION=<location>   # only when the account has several
+taphome auth login
 ```
 
-`rule get` prints the envelope, and the object under `data.model` is a valid file for `rule apply`. More commands, flags and output fields are in [`docs/cli.md`](docs/cli.md).
+Each variable also has a `_FILE` variant that names a file holding the value. The password is never accepted as a command line argument. The first command after a cloud login can take about 10 seconds, later ones about a second.
 
-### Safety model
+### 3. Check the connection
 
-- Output is one JSON envelope with `ok`, `command`, `data` and `warnings`, or `error` on failure. Exit codes tell the failure class: 0 ok, 2 usage, 3 auth or config, 4 connection, 5 the Core rejected the request, 6 object not found or ambiguous, 7 refused by a CLI gate, 8 verification failed.
-- Every write command has `--dry-run`. It reads the current configuration, builds the message, prints it with a diff and sends nothing.
-- A real write is verified. After the Core answers, the CLI opens a new session, syncs again and checks the expected state. A failed check exits with 8 and still reports what the Core answered.
-- Operations and variants that were never tested against a real Core are refused with `unverified_operation` unless you pass `--allow-unverified`.
-- `taphome raw call` sends any request class. It refuses write and action classes without `--allow-write` and unverified classes without `--allow-unverified`.
-- Passwords, tokens, the session id, the password hash and the salt are redacted from all output. `--show-secrets` reveals property passwords and tokens only.
+```sh
+taphome auth status --pretty
+taphome sync --pretty
+```
 
-### macOS and Local Network privacy
+`sync` prints the counts of devices, interfaces and smart rules. If it fails with `connection_failed` and "No route to host" on macOS, see [Troubleshooting](#troubleshooting).
 
-macOS blocks LAN access for a process started by an app that has no Local Network permission. The connection then fails with "No route to host", which the CLI reports as `connection_failed`. Grant the permission to the terminal or agent app under System Settings, Privacy and Security, Local Network, then start a new session of that app.
+### Use it from an AI agent
 
-### Development
+Give the agent the skill in [`.agents/skills/taphome-cli/SKILL.md`](.agents/skills/taphome-cli/SKILL.md) and the credentials through its environment or its secret prompt, never in the chat. Claude Code picks the skill up automatically in this repository through `.claude/skills`.
+
+## Safety model
+
+The CLI works on a real home, so it refuses more than it allows.
+
+- **Dry run first.** Every write command has `--dry-run`. It reads the current configuration, builds the message, prints it with a diff and sends nothing.
+- **Verified writes.** After the Core answers, the CLI opens a new session, syncs again and checks the expected state. A failed check exits with code 8 and still reports what the Core answered.
+- **Untested means refused.** Operations and variants never tested on a real Core fail with `unverified_operation` unless you pass `--allow-unverified`.
+- **Raw access is gated.** `taphome raw call` sends any message class, but refuses writes without `--allow-write` and untested classes without `--allow-unverified`.
+- **Secrets stay hidden.** Passwords, tokens, the session id, the password hash and the salt are redacted from all output.
+
+Exit codes: 0 ok, 2 usage, 3 auth or config, 4 connection, 5 the Core rejected the request, 6 not found or ambiguous, 7 refused by a CLI gate, 8 verification failed.
+
+## Status
+
+Version 0.2.0. Tested against a real Core with software 2025.2.32396 (protocol version 89) on 2026-11-17 and 2026-11-18.
+
+| Area | Status |
+|---|---|
+| Login and session, LAN | tested |
+| Login and reads through the cloud tunnel | tested |
+| Reads: devices, values, logs, errors, Packet Parser scripts, smart rules | tested |
+| Virtual devices: create, rename, delete | tested |
+| Packet Parser: import an HTTP module with devices, change a script | tested |
+| Smart rules: create and delete a formula rule | tested |
+| Other variants (other module types, other rule types, forced delete) | gated behind `--allow-unverified` |
+
+54 of the 274 operations in the specification are tested. [`docs/verification.md`](docs/verification.md) is the full record.
+
+## Documentation
+
+| Document | Content |
+|---|---|
+| [`docs/cli.md`](docs/cli.md) | Every command, flag, output field, error code and configuration variable |
+| [`docs/architecture.md`](docs/architecture.md) | Core, app, cloud and tunnel, network paths, discovery |
+| [`docs/auth.md`](docs/auth.md) | Login methods, session flow, password hash and salt |
+| [`docs/protocol.md`](docs/protocol.md) | Wire format, acknowledgements, errors, how changes are committed |
+| [`docs/configuration-model.md`](docs/configuration-model.md) | Interfaces, devices, I/O, Packet Parser, Modbus and smart rules, with message sequences |
+| [`docs/verification.md`](docs/verification.md) | What was tested on a real Core |
+| [`docs/reverse-engineering.md`](docs/reverse-engineering.md) | How to reproduce the analysis of the Android app |
+| [`docs/project-brief.md`](docs/project-brief.md) | The original goals of the project |
+
+## Troubleshooting
+
+- **`connection_failed` with "No route to host" on macOS.** macOS blocks LAN access for a process started by an app that has no Local Network permission. Grant it to the terminal or agent app under System Settings, Privacy and Security, Local Network, then restart that app.
+- **`salt_missing` on login.** The binary was built from source without the password salt. Use a release binary, or see [Build from source](#build-from-source).
+- **`unauthorized` or `RemoteAccessDisabled` through the cloud.** A local account cannot connect remotely. Use a TapHome account that is a user of the Core.
+- **`core_offline`.** The Core is not connected to the TapHome cloud. Check its internet connection.
+- **`session_invalid`.** The Core rejected the stored session and no password is set. Set the password variable and run `taphome auth login`.
+
+## Development
 
 ```sh
 cargo fmt
@@ -127,32 +168,25 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Tests use a fake Core on `127.0.0.1` and an invented salt, so they need no network and no secret.
+The tests use a fake Core on `127.0.0.1` and an invented salt, so they need no network and no secret.
 
 - `data/catalog.json` is the protocol catalog compiled into the binary. Regenerate it from the spec with `uv run --with pyyaml scripts/build_cli_catalog.py`, and check that it is current with `--check`.
 - `tests/vectors/codec.json` holds byte vectors for the codec tests. Regenerate it with `python3 scripts/build_codec_vectors.py`.
 - CI (`.github/workflows/ci.yml`) runs fmt, clippy and the tests on pull requests and on `main`. It builds without a salt.
-- The release workflow (`.github/workflows/release.yml`) runs on a tag `v*`. It builds the five targets, packs them as `taphome-<target>.tar.gz` (a `.zip` on Windows), writes `SHA256SUMS` and publishes a GitHub release. The salt comes from the repository secret `TAPHOME_PASSWORD_SALT`, which reaches only the build step, and `TAPHOME_REQUIRE_SALT=1` makes the build fail when the secret is missing.
+- The release workflow (`.github/workflows/release.yml`) runs on a `v*` tag. It builds the five targets, writes `SHA256SUMS` and publishes a GitHub release. The salt comes from the repository secret `TAPHOME_PASSWORD_SALT`, and `TAPHOME_REQUIRE_SALT=1` makes the build fail when the secret is missing.
 
-## Reverse engineering setup (REA)
+### Build from source
 
-The project uses [REA](https://github.com/morluto/rea) (`rea-agents@6.9.0`) as a project-scoped MCP server, configured in `.mcp.json`, with its skill in `.agents/skills/reverse-engineer-anything` (linked from `.claude/skills`).
-
-Prerequisites on macOS:
+Release binaries contain the TapHome password salt. The public source does not. A build reads the salt from `TAPHOME_PASSWORD_SALT` or from the file `~/.config/taphome/salt`. Where to find it is described in [`docs/auth.md`](docs/auth.md).
 
 ```sh
-brew install openjdk jadx apktool android-platform-tools dotnet uv
-dotnet tool install -g ilspycmd
-mkdir -p ~/.local/share/rea/android && cd ~/.local/share/rea/android
-curl -fL -o jadx-headless-mcp-0.7.1-all.jar \
-  https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar
-echo '6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75  jadx-headless-mcp-0.7.1-all.jar' | shasum -a 256 -c -
+TAPHOME_PASSWORD_SALT='...' cargo install --git https://github.com/Damecek/taphome-config-cli
 ```
 
-The app is a .NET application, so `ilspycmd` decompiles its assemblies and `uv` runs the scripts in `scripts/`. The full pipeline is in [`docs/reverse-engineering.md`](docs/reverse-engineering.md).
-
-Override the tool paths with `REA_JADX_MCP_JAR`, `REA_APKTOOL_COMMAND` and `REA_ADB_PATH` if yours differ.
+A build without the salt works for every command except login, which fails with `salt_missing`. Setting `TAPHOME_PASSWORD_SALT` at run time also works with such a build.
 
 ## Legal
 
-This is an independent interoperability project, not affiliated with TapHome. APKs and decompiled sources stay local in `work/` (git-ignored) and are never committed. Only the API description and original code are published.
+This is an independent interoperability project and it is not affiliated with TapHome. APKs and decompiled sources stay local in `work/` (git-ignored) and are never committed. Only the API description and original code are published.
+
+The original code and documentation are released under the [MIT License](LICENSE). TapHome is a trademark of its owner. The license does not cover TapHome software, which is not part of this repository.
